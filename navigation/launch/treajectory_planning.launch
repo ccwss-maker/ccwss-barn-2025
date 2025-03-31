@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-  <!-- <node pkg="rviz" type="rviz" name="rviz" args="-d /root/PersonalData/Program/jackal_ws/src/rviz/show.rviz" output="screen"/> -->
+  <node pkg="rviz" type="rviz" name="rviz" args="-d /root/PersonalData/Program/jackal_ws/src/rviz/show.rviz" output="screen"/>
   <node pkg="trajectory_planning" type="trajectory_planning_node" name="trajectory_planning" output="screen">
   </node>
 </launch>

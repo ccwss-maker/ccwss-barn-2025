@@ -49,7 +49,7 @@ double MPCNode::computeObstacleCost(const Eigen::Vector2d& pos_world,
     double ret = w_obs * std::exp(-d / sigma);
 
     ret = std::min(ret, config["max_obs"].as<double>());
-    std::cout << "ret: " << ret << std::endl;
+    // std::cout << "ret: " << ret << std::endl;
 
     
     return ret;  // 越靠近障碍，惩罚越大
@@ -106,7 +106,7 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
     // rush_sign = msg_process_node_->rush_sign;
     // rush_sign = true;
     if (rush_sign) {
-        std::cout << "rush!!!!" << std::endl;
+        // std::cout << "rush!!!!" << std::endl;
         Eigen::Vector3d goal = control_points.col(control_points.cols() - 1);
         // 构造目标点齐次坐标（只有位置）
         Eigen::Vector4d goal_odom;
@@ -388,7 +388,7 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
         twist_cmd_pub_.publish(twist_cmd);
     }
 
-    std::cout << "cmd_v: " << cmd_v << ", cmd_omega: " << cmd_omega << std::endl;
+    // std::cout << "cmd_v: " << cmd_v << ", cmd_omega: " << cmd_omega << std::endl;
     nav_msgs::Path predict_path;
     predict_path.header.stamp = ros::Time::now();
     predict_path.header.frame_id = "odom";  // 或 "map"，视你的TF配置而定

@@ -224,7 +224,7 @@ Visualization Manager:
       Marker Topic: /visualization_marker_goal
       Name: Goal
       Namespaces:
-        goal: true
+        {}
       Queue Size: 100
       Value: true
     - Alpha: 1

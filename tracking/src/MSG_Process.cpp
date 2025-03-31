@@ -6,7 +6,7 @@ MsgProcessNode::MsgProcessNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_n
   ros::NodeHandle nh;
   A_Star_Traj_Subscriber_ = nh.subscribe("/A_Star_Planned_Path", 10, &MsgProcessNode::AStarTrajectoryCallback, this);
   // 初始化地图订阅者
-  Map_Subscriber_ = nh.subscribe("/A_Star_Map_Origin", 10, &MsgProcessNode::MapCallback, this);
+  Map_Subscriber_ = nh.subscribe("/A_Star_Map_Relaxed", 10, &MsgProcessNode::MapCallback, this);
   // 初始化发布者
   // Tracking_Traj_Publisher_ = nh.advertise<nav_msgs::Path>("/Tracking_Trajectory", 10);
 
