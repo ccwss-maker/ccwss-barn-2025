@@ -1,0 +1,17 @@
+Car_Length: 0.42
+Car_Width: 0.31
+
+# MAP
+resolution_meters: 0.05
+
+# A*
+Enable_Obstacle_Penalty: true
+Penalty_Weight: 0.5
+Penalty_Radius: 2
+
+Safety_Hor: 0.35                      #距离障碍物安全距离
+Publish_A_Star_Map: true
+Publish_A_Star_Path: true
+
+
+rush_distance: 0.08

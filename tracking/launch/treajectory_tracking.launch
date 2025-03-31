@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 启动自定义导航节点 -->
+  <node pkg="trajectory_tracking" type="trajectory_tracking_node" name="trajectory_tracking" output="screen">
+  </node>
+</launch>
