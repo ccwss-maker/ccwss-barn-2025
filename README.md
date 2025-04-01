@@ -27,7 +27,7 @@ The requirements above are just suggestions. If you run into any issue, please c
 
 This is the docker image for the April 1st Soft-Deadline submission
 ```
-docker pull ccwssplus/ros-melodic-env:latest
+docker pull ccwssplus/ccwss-barn-2025:latest
 ```
 Start the docker container named ``` barn  ```in the background. Use VSCode Dev Container extension to connect to the running container
 ```
