@@ -35,14 +35,15 @@ Start the docker container named ``` barn  ```in the background. Use VSCode Dev 
 xhost +
 
 # Nvidia Container
-docker run --rm -dt --name barn \
+docker run -it \
+  --name ccwss_barn_test \
   --gpus all \
-  -e DISPLAY="$DISPLAY" \
-  -e QT_X11_NO_MITSHM=1 \
-  -e LIBGL_ALWAYS_SOFTWARE=1 \
-  -e NVIDIA_DRIVER_CAPABILITIES=all \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  ccwssplus/ccwss-barn-2025:latest
+  --env DISPLAY=$DISPLAY \
+  --env QT_X11_NO_MITSHM=1 \
+  --env NVIDIA_DRIVER_CAPABILITIES=all \
+  --env NVIDIA_VISIBLE_DEVICES=all \
+  -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+  ccwssplus/ccwss-barn-2025
 
 ```
 
