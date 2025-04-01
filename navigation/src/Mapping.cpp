@@ -5,7 +5,7 @@ MappingNode::MappingNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node) :
 {
     ros::NodeHandle nh;
     
-    config_yaml_path = "/root/PersonalData/Program/jackal_ws/src/navigation/config/config.yaml";
+    config_yaml_path = "/jackal_ws/src/navigation/config/config.yaml";
     
     // 初始化同步订阅者
     scan_sub_ = nh.subscribe("/map", 1, &MappingNode::scanCallback, this);

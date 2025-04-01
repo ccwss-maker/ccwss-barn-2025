@@ -15,7 +15,7 @@ MPCNode::MPCNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node, std::shar
 {
     // 初始化订阅者
     ros::NodeHandle nh;
-    config_yaml_path = "/root/PersonalData/Program/jackal_ws/src/tracking/config/config.yaml";
+    config_yaml_path = "/jackal_ws/src/tracking/config/config.yaml";
     YAML::Node config = YAML::LoadFile(config_yaml_path);
     double T = config["T"].as<double>();
     timer_ = nh.createTimer(ros::Duration(T), &MPCNode::TimerCallback, this);
