@@ -1,0 +1,94 @@
+Bootstrap: docker
+From: osrf/ros:melodic
+
+%environment
+    export DISPLAY=:1
+    export ROS_DISTRO=melodic
+    source /opt/ros/melodic/setup.bash
+    source /root/PersonalData/Program/jackal_ws/devel/setup.bash
+
+%post
+    apt update && apt install -y \
+        build-essential libssl-dev wget \
+        software-properties-common \
+        coinor-libipopt-dev libblas-dev liblapack-dev gfortran \
+        python3-pip xvfb \
+        ros-melodic-rviz-visual-tools libcgal-dev
+
+    # Create directories
+    mkdir -p /root/PersonalData/Program /root/PersonalData/Tool
+    cd /root/PersonalData/Tool
+
+    # Install CMake
+    wget https://github.com/Kitware/CMake/releases/download/v3.22.6/cmake-3.22.6.tar.gz
+    tar -zxvf cmake-3.22.6.tar.gz && rm cmake-3.22.6.tar.gz
+    cd cmake-3.22.6
+    ./bootstrap
+    make -j$(nproc)
+    make install
+    cd ..
+
+    # Install Eigen
+    wget https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+    tar -zxvf eigen-3.4.0.tar.gz && rm eigen-3.4.0.tar.gz
+    cd eigen-3.4.0
+    mkdir build && cd build
+    cmake ..
+    make -j$(nproc)
+    make install
+    cd ../..
+
+    # Install OSQP
+    git clone --branch v1.0.0 https://github.com/osqp/osqp.git
+    cd osqp
+    mkdir build && cd build
+    cmake .. -DCMAKE_BUILD_TYPE=Release
+    make -j$(nproc)
+    make install
+    cd ../..
+
+    # Install OSQP-Eigen
+    git clone --branch v0.10.0 https://github.com/robotology/osqp-eigen.git
+    cd osqp-eigen
+    mkdir build && cd build
+    cmake .. -DCMAKE_BUILD_TYPE=Release
+    make -j$(nproc)
+    make install
+    cd ../..
+
+    # Install CasADi
+    git clone https://github.com/casadi/casadi.git
+    cd casadi
+    git checkout tags/3.7.0
+    mkdir build && cd build
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DWITH_IPOPT=ON
+    make -j$(nproc)
+    make install
+    cd ../../../
+
+    # Prepare workspace
+    cd /root/PersonalData/Program
+    mkdir -p jackal_ws/src && cd jackal_ws/src
+
+    pip3 install defusedxml rospkg netifaces numpy
+
+    # Clone ROS packages
+    git clone https://github.com/ccwss-maker/ccwss-barn-2025.git .
+    git clone https://github.com/jackal/jackal_simulator.git --branch melodic-devel
+    git clone https://github.com/jackal/jackal_desktop.git --branch melodic-devel
+
+    # ROS build
+    cd ..
+    source /opt/ros/melodic/setup.bash
+    rosdep update
+    rosdep install --from-paths src --ignore-src -r -y
+    catkin_make
+
+    # Setup headless display
+    echo "Xvfb :1 -screen 0 1024x768x24 &" >> /root/.bashrc
+    echo "export DISPLAY=:1" >> /root/.bashrc
+    echo "source /opt/ros/melodic/setup.bash" >> /root/.bashrc
+    echo "source /root/PersonalData/Program/jackal_ws/devel/setup.bash" >> /root/.bashrc
+
+%runscript
+    exec python3 /root/PersonalData/Program/jackal_ws/src/the-barn-challenge/run.py --world_idx 0
