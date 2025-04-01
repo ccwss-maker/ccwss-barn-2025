@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: osrf/ros:melodic
+From: ros:melodic
 
 %environment
     export DISPLAY=:1
