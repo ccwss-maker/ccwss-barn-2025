@@ -42,7 +42,7 @@ docker run --rm -dt --name barn \
   -e LIBGL_ALWAYS_SOFTWARE=1 \
   -e NVIDIA_DRIVER_CAPABILITIES=all \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
-  ccwssplus/ros-melodic-env:latest
+  ccwssplus/ccwss-barn-2025:latest
 
 ```
 
