@@ -1,6 +1,7 @@
 #include "ros/ros.h"
-#include "A_Star_Planning_Node.hpp"
 // #include "Mapping.hpp"
+#include "A_Star_Planning_Node.hpp"
+#include "First_Optimization_Node.hpp"
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "navigation_system");
@@ -16,6 +17,8 @@ int main(int argc, char **argv)
     //     Eigen::aligned_allocator<AStarPlanningNode>(), tf_subscriber_node ,mapping_node);
     auto route_planning_node = std::allocate_shared<AStarPlanningNode>(
         Eigen::aligned_allocator<AStarPlanningNode>(), tf_subscriber_node);
+    
+    auto first_optimization_node = std::make_shared<FirstOptimizationNode>();
 
     // 设置多线程回调队列
     ros::MultiThreadedSpinner spinner(3); // 使用4个线程

@@ -5,8 +5,8 @@ cmake_minimum_required(VERSION 3.0.2)
 
 project(Project)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CATKIN_TOPLEVEL TRUE)
-
 # search for catkin within the workspace
 set(_cmd "catkin_find_pkg" "catkin" "${CMAKE_SOURCE_DIR}")
 execute_process(COMMAND ${_cmd}

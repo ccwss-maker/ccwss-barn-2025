@@ -30,6 +30,17 @@ AStarPlanningNode::AStarPlanningNode(std::shared_ptr<TFSubscriberNode> tf_subscr
     a_star_map_pub = nh.advertise<nav_msgs::OccupancyGrid>("/A_Star_Map", 10);
     a_star_map_relaxed_pub = nh.advertise<nav_msgs::OccupancyGrid>("/A_Star_Map_Relaxed", 10);
     a_start_map_origin_pub = nh.advertise<nav_msgs::OccupancyGrid>("/A_Star_Map_Origin", 10);
+
+
+    Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
+    Eigen::Vector3d Base_To_Odom_Translation = Base_To_Odom_Matrix.Translation_Read();
+    double roll, pitch, yaw;
+    tf::Quaternion transform_q = Base_To_Odom_Matrix.Quaternion_Read();
+    tf::Matrix3x3(transform_q).getRPY(roll, pitch, yaw);
+    vehicle_pose.x = Base_To_Odom_Translation.x();
+    vehicle_pose.y = Base_To_Odom_Translation.y();
+    vehicle_pose.yaw = yaw;
+
     ROS_INFO("Trajectory planning node initialized and started");
 }
 
@@ -39,17 +50,8 @@ void AStarPlanningNode::scanCallback(const sensor_msgs::LaserScan::ConstPtr& sca
         return;
     }
     Laser_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "front_laser");     
-    Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
     // 获取配置参数
     config = YAML::LoadFile(config_yaml_path);
-
-    Eigen::Vector3d Base_To_Odom_Translation = Base_To_Odom_Matrix.Translation_Read();
-    double roll, pitch, yaw;
-    tf::Quaternion transform_q = Base_To_Odom_Matrix.Quaternion_Read();
-    tf::Matrix3x3(transform_q).getRPY(roll, pitch, yaw);
-    vehicle_pose.x = Base_To_Odom_Translation.x();
-    vehicle_pose.y = Base_To_Odom_Translation.y();
-    vehicle_pose.yaw = yaw;
 
     // 存储激光点
     std::vector<Eigen::Vector3d> raw_points;
@@ -95,7 +97,7 @@ void AStarPlanningNode::scanCallback(const sensor_msgs::LaserScan::ConstPtr& sca
     }
     
     // === 2. 移除过期障碍点（如30秒未被再次看到）===
-    ros::Duration decay(30.0);
+    ros::Duration decay(10.0);
     auto it = historical_obstacle_points_.begin();
     while (it != historical_obstacle_points_.end()) {
         if ((now - it->second) > decay) {

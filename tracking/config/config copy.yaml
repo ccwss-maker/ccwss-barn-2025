@@ -2,13 +2,9 @@ rush:
   k_v: 10
   k_w: 5
 
-resample:
-  min_spacing: 0.001   # 最小点间距（曲率大时，点更密集）
-  max_spacing: 0.05    # 最大点间距（曲率小时，点更稀疏）
-
 # 控制参数
 T: 0.03                # 控制周期 (秒)
-Np_max: 30                 # 预测步长
+Np: 30                 # 预测步长
 Np_min: 10 
 Nc: 30                # 控制步长
 lookahead: 0
@@ -24,9 +20,20 @@ control_limits:
   alpha_min: -4.0    # 最小角加速度 (rad/s^2)
   alpha_max: 4.0     # 最大角加速度 (rad/s^2)
 
-#曲率控制 Np大小
+# 推离障碍物
+distance_threshold: 0.3   # 参考点与障碍物的距离阈值
+push_strength: 0.0        # 推力强度
+
+# 障碍物减速
+sigma: 0.3                  # 障碍物惩罚系数 越小越敏感
+max_obs: 0            #障碍物减速最大权重
+
+#弯道减速
 curvature_sensitivity: 70.0   # 曲率对预测步长的影响程度，越大越敏感（建议 30 ~ 80）
 window_size: 13        # 预测窗口大小
+offset: 15         # 参考速度计算的前后点数
+alpha: 15        # 减速幅度 
+
 
 
 # MPC权重参数
@@ -35,6 +42,7 @@ weights:
   y: 1000.0              # y位置跟踪权重
   phi: 100.0             # 方向角跟踪权重
   v_ref: 100.0        # 弯道速度
+  obs: 0.5             # 障碍物减速权重
 
 
 control: false

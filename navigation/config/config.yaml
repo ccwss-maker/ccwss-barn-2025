@@ -13,5 +13,26 @@ Safety_Hor: 0.35                      #距离障碍物安全距离
 Publish_A_Star_Map: true
 Publish_A_Star_Path: true
 
-
 rush_distance: 0.08
+
+# Trajectory_Opimization
+init_velocity: 1
+# init_time: 0.1
+A_Star_Point_interval: 2        #在A*中每隔n个点取1个点拟合路径
+traj_opimiz_weight_time: 1
+traj_opimiz_weight_energy_x: 1
+traj_opimiz_weight_energy_y: 1
+traj_opimiz_weight_energy_w: 1
+traj_opimiz_weight_position_x: 1
+traj_opimiz_weight_position_y: 1            
+traj_opimiz_weight_position_w: 1
+traj_opimiz_weight_linear_velocity: 1
+traj_opimiz_weight_angular_velocity: 1
+
+max_linear_velocity: 2
+max_angular_velocity: 2
+
+first_optimum_min_step: 1e-5
+first_optimum_epsilon: 1e-4
+first_optimum_max_iterations: 2000
+Publish_First_Optimum_Marker: true

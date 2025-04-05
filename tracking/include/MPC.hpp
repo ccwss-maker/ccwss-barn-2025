@@ -7,7 +7,8 @@
 #include "Eigen/Dense"
 #include <Eigen/Sparse>
 #include "../../navigation/include/TFSubscriberNode.hpp"
-
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 #include <cmath>
 #include <vector>
 #include <algorithm>
@@ -35,6 +36,7 @@ private:
     ros::Publisher twist_cmd_pub_;
     ros::Publisher predict_path_pub_;
     ros::Publisher ref_path_pub_;
+    ros::Publisher marker_pub_;
 
     //MPC参数
     int Np = 10;                   //预测步长

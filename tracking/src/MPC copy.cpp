@@ -30,6 +30,31 @@ MPCNode::MPCNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node, std::shar
     rush_sign = false;
 }
 
+// -------------------- 计算障碍物代价 -------------------- //
+double MPCNode::computeObstacleCost(const Eigen::Vector2d& pos_world,
+    const nav_msgs::OccupancyGrid& grid_map,
+    const cv::Mat& dist_map,
+    double w_obs,
+    double sigma)
+{
+    YAML::Node config = YAML::LoadFile(config_yaml_path);
+    double origin_x = grid_map.info.origin.position.x;
+    double origin_y = grid_map.info.origin.position.y;
+    double resolution = grid_map.info.resolution;
+
+    int x = static_cast<int>((pos_world.x() - origin_x) / resolution);
+    int y = static_cast<int>((pos_world.y() - origin_y) / resolution);
+
+    if (x < 0 || x >= dist_map.cols || y < 0 || y >= dist_map.rows)
+        return 0.0;
+
+    float d = dist_map.at<float>(y, x);
+    double ret = w_obs * std::exp(-d / sigma);
+    ret = std::min(ret, config["max_obs"].as<double>());
+
+    return ret; // 距离越近，惩罚越大
+}
+
 // -------------------- MPC 核心控制回调函数 -------------------- //
 void MPCNode::TimerCallback(const ros::TimerEvent& event)
 {
@@ -64,6 +89,9 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
     w_x_ = config["weights"]["x"].as<double>();
     w_y_ = config["weights"]["y"].as<double>();
     w_phi_ = config["weights"]["phi"].as<double>();
+    double w_vref = config["weights"]["v_ref"].as<double>();
+    double w_obs = config["weights"]["obs"].as<double>();
+    double sigma = config["sigma"].as<double>();
     int lookahead = config["lookahead"].as<int>();
 
     // 当前位姿提取
@@ -114,7 +142,9 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
     }
 
     // ------------------- 曲率感知预测步长调整 ------------------- //
-    int Np_max = config["Np_max"].as<int>();
+    double alpha = config["alpha"].as<double>();
+    int offset = config["offset"].as<int>();
+    int Np_max = config["Np"].as<int>();
     int Np_min = config["Np_min"].as<int>();
     int window_size = config["window_size"].as<int>();
 
@@ -162,11 +192,34 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
         }
     }
 
-    // ------------------- 构造参考轨迹 ------------------- //
+    // ------------------- 构造参考轨迹（包含路径推开） ------------------- //
     Eigen::VectorXd ref(3 * Np);
-    for (int i = 0; i < Np; i++)
-    {
-        ref.segment<3>(3 * i) = control_points.col(N_start + i);
+    double origin_x = msg_process_node_->grid_map.info.origin.position.x;
+    double origin_y = msg_process_node_->grid_map.info.origin.position.y;
+    double resolution = msg_process_node_->grid_map.info.resolution;
+
+    double distance_threshold = config["distance_threshold"].as<double>();
+    double push_strength = config["push_strength"].as<double>();
+
+    for (int i = 0; i < Np; ++i) {
+        Eigen::Vector3d pt = control_points.col(N_start + i);
+        Eigen::Vector2d pos_world(pt.x(), pt.y());
+        int x = static_cast<int>((pos_world.x() - origin_x) / resolution);
+        int y = static_cast<int>((pos_world.y() - origin_y) / resolution);
+
+        if (x >= 1 && x < dist_map.cols - 1 && y >= 1 && y < dist_map.rows - 1) {
+            float dist = dist_map.at<float>(y, x);
+            if (dist < distance_threshold) {
+                float dx = (dist_map.at<float>(y, x + 1) - dist_map.at<float>(y, x - 1)) / (2 * resolution);
+                float dy = (dist_map.at<float>(y + 1, x) - dist_map.at<float>(y - 1, x)) / (2 * resolution);
+                Eigen::Vector2d grad(dx, dy);
+                if (grad.norm() > 1e-3) {
+                    grad.normalize();
+                    pos_world += push_strength * grad;
+                }
+            }
+        }
+        ref.segment<3>(3 * i) << pos_world.x(), pos_world.y(), pt.z();
     }
 
     // ------------------- 代价矩阵构建（跟踪误差） ------------------- //
@@ -175,14 +228,40 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
         Q.block<3, 3>(3 * i, 3 * i) = Eigen::DiagonalMatrix<double, 3>(w_x_, w_y_, w_phi_);
     }
 
+    // ------------------- 构造参考速度 v_ref（用于调速） ------------------- //
+    Eigen::VectorXd v_ref = Eigen::VectorXd::Zero(Nc);
+    for (int i = 0; i < Nc; ++i) {
+        int idx0 = N_start + i;
+        int idx_back = std::max(idx0 - offset, 0);
+        int idx_forward = std::min(idx0 + offset, (int)control_points.cols() - 1);
+        double phi_back = control_points(2, idx_back);
+        double phi_forward = control_points(2, idx_forward);
+        double dphi = std::atan2(std::sin(phi_forward - phi_back), std::cos(phi_forward - phi_back));
+        double v = v_max_ * std::exp(-alpha * std::abs(dphi));
+        v_ref(i) = clamp(v, v_min_, v_max_);
+    }
+
     // ------------------- 优化目标函数构建 ------------------- //
     Eigen::MatrixXd M = Eigen::MatrixXd::Zero(Nc, 2 * Nc);
     for (int i = 0; i < Nc; ++i) {
         M(i, 2 * i) = 1;
     }
+    Eigen::MatrixXd W_vref = Eigen::MatrixXd::Identity(Nc, Nc) * w_vref;
 
-    Eigen::MatrixXd H_dense = B_bar.transpose() * Q * B_bar;
-    Eigen::VectorXd f = B_bar.transpose() * Q * (A_bar * x0 - ref);
+    Eigen::MatrixXd H_dense = B_bar.transpose() * Q * B_bar + M.transpose() * W_vref * M;
+    Eigen::VectorXd f = B_bar.transpose() * Q * (A_bar * x0 - ref) - M.transpose() * W_vref * v_ref;
+
+    // ------------------- 融合障碍物惩罚代价（soft） ------------------- //
+    for (int i = 0; i < Np; ++i) {
+        Eigen::Vector3d x_est = A_bar.block(3 * i, 0, 3, 3) * x0;
+        Eigen::Vector2d pos_xy(x_est(0), x_est(1));
+        double obs_cost = computeObstacleCost(pos_xy, msg_process_node_->grid_map, dist_map, w_obs, sigma);
+        for (int j = 0; j < Nc; ++j) {
+            if (j <= i) {
+                f(2 * j) += obs_cost; // 加在v控制项上
+            }
+        }
+    }
 
     // ------------------- 控制输入约束构建 ------------------- //
     int n_variables = 2 * Nc;

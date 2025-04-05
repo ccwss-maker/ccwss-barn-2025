@@ -18,7 +18,8 @@ find_package(catkin REQUIRED COMPONENTS
 )
 find_package(yaml-cpp REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
-
+find_package(OpenCV REQUIRED)
+find_package(initial_optimized_msgs REQUIRED)
 # 设置catkin包
 catkin_package(
   INCLUDE_DIRS include
@@ -32,6 +33,7 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
   ${YAML_CPP_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
 )
 
 # 添加库路径
@@ -46,10 +48,12 @@ add_executable(trajectory_planning_node
   src/TFSubscriberNode.cpp
   # src/Mapping.cpp
   src/A_Star_Planning_Node.cpp
+  src/First_Optimization_Node.cpp
 )
 
 # 链接所有需要的库
 target_link_libraries(trajectory_planning_node
   ${catkin_LIBRARIES}
   yaml-cpp
+  ${OpenCV_LIBS}
 )

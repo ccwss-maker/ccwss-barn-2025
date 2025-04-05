@@ -224,7 +224,7 @@ Visualization Manager:
       Marker Topic: /visualization_marker_goal
       Name: Goal
       Namespaces:
-        {}
+        goal: true
       Queue Size: 100
       Value: true
     - Alpha: 1
@@ -308,34 +308,35 @@ Visualization Manager:
       Unreliable: false
       Use Timestamp: false
       Value: true
-    - Alpha: 1
-      Buffer Length: 1
-      Class: rviz/Path
-      Color: 25; 255; 0
+    - Class: rviz/MarkerArray
       Enabled: true
-      Head Diameter: 0.30000001192092896
-      Head Length: 0.20000000298023224
-      Length: 0.30000001192092896
-      Line Style: Lines
-      Line Width: 0.029999999329447746
-      Name: Path
-      Offset:
-        X: 0
-        Y: 0
-        Z: 0
-      Pose Color: 255; 85; 255
-      Pose Style: None
-      Radius: 0.029999999329447746
-      Shaft Diameter: 0.10000000149011612
-      Shaft Length: 0.10000000149011612
-      Topic: /Tracking_Trajectory
-      Unreliable: false
+      Marker Topic: /First_Optimization_Marker_Array
+      Name: First Optimization Trajectory
+      Namespaces:
+        trajectory: true
+      Queue Size: 100
       Value: true
+    - Class: rviz/MarkerArray
+      Enabled: false
+      Marker Topic: /MPC/Origin_Reference_Traj
+      Name: MPC Received Trajectory
+      Namespaces:
+        {}
+      Queue Size: 100
+      Value: false
+    - Class: rviz/MarkerArray
+      Enabled: false
+      Marker Topic: /mpc/reference_path
+      Name: MPC Reference Trajectory
+      Namespaces:
+        {}
+      Queue Size: 100
+      Value: false
     - Alpha: 1
       Buffer Length: 1
       Class: rviz/Path
       Color: 0; 0; 0
-      Enabled: true
+      Enabled: false
       Head Diameter: 0.30000001192092896
       Head Length: 0.20000000298023224
       Length: 0.30000001192092896
@@ -353,30 +354,7 @@ Visualization Manager:
       Shaft Length: 0.10000000149011612
       Topic: /mpc/predict_path
       Unreliable: false
-      Value: true
-    - Alpha: 3
-      Buffer Length: 3
-      Class: rviz/Path
-      Color: 0; 170; 255
-      Enabled: true
-      Head Diameter: 0.30000001192092896
-      Head Length: 0.20000000298023224
-      Length: 0.30000001192092896
-      Line Style: Billboards
-      Line Width: 0.029999999329447746
-      Name: MPC Ref Path
-      Offset:
-        X: 0
-        Y: 0
-        Z: 0
-      Pose Color: 255; 85; 255
-      Pose Style: None
-      Radius: 0.029999999329447746
-      Shaft Diameter: 0.10000000149011612
-      Shaft Length: 0.10000000149011612
-      Topic: /mpc/reference_path
-      Unreliable: false
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -405,25 +383,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 9.615084648132324
+      Distance: 11.438961029052734
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.2836655080318451
-        Y: 1.3396430015563965
-        Z: 0.310516893863678
+        X: -0.3048173189163208
+        Y: 1.7945510149002075
+        Z: -0.3007000684738159
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.8397969603538513
+      Pitch: 1.374796748161316
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.725436210632324
+      Yaw: 4.500477313995361
     Saved: ~
 Window Geometry:
   Displays:
