@@ -3,6 +3,8 @@ Car_Width: 0.31
 
 # MAP
 resolution_meters: 0.05
+Publish_Map: true
+
 
 # A*
 Enable_Obstacle_Penalty: true

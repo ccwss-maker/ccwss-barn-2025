@@ -83,7 +83,7 @@ private:
 
     
     bool last_optimization_success;
-    double last_cost_yaw = std::numeric_limits<double>::max();
+    double last_cost = std::numeric_limits<double>::max();
     initial_optimized_msgs::InitialOptimizedTrajectory InitialOptimizedTrajectory_pub;
 };
 

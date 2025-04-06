@@ -46,7 +46,7 @@ add_executable(trajectory_planning_node
   src/main.cpp
   src/Matrix.cpp
   src/TFSubscriberNode.cpp
-  # src/Mapping.cpp
+  src/Mapping.cpp
   src/A_Star_Planning_Node.cpp
   src/First_Optimization_Node.cpp
 )

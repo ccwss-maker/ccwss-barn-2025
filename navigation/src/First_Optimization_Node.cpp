@@ -85,7 +85,7 @@ void FirstOptimizationNode::pathCallback(const astar_msgs::AStarPathArray::Const
     }
 
     if (path_changed) {
-        last_cost_yaw = std::numeric_limits<double>::max();  // 重置上次代价
+        last_cost = std::numeric_limits<double>::max();  // 重置上次代价
     }
     A_Star_Path_Last = A_Star_Path;
 
@@ -183,9 +183,9 @@ void FirstOptimizationNode::pathCallback(const astar_msgs::AStarPathArray::Const
                 ROS_WARN("Angular velocity exceeded: %f", angular_v);
             }
         }
-        if(min_cost < last_cost_yaw)
+        if(min_cost < last_cost)
         {
-            last_cost_yaw = min_cost;
+            last_cost = min_cost;
 
             InitialOptimizedTrajectory_pub.position.clear();
             InitialOptimizedTrajectory_pub.times.clear();
@@ -208,7 +208,7 @@ void FirstOptimizationNode::pathCallback(const astar_msgs::AStarPathArray::Const
             ROS_INFO("Updated trajectory with better cost: %f", cost_Yaw);
         }
     }
-    else if (last_cost_yaw == std::numeric_limits<double>::max()) {
+    else if (last_cost == std::numeric_limits<double>::max()) {
         // 还没成功优化过，fallback 发布原始路径
         ROS_WARN("Fallback: No valid optimized trajectory. Publishing raw path.");
         InitialOptimizedTrajectory_pub.position.clear();

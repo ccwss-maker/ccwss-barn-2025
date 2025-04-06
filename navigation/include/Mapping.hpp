@@ -23,26 +23,48 @@ class MappingNode {
 public:
     // Constructor
     MappingNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node);
+
+    std::vector<std::vector<int>> generateInflatedGridMap(double xmin, double xmax, double ymin, double ymax,
+                                                            double resolution,
+                                                            double car_length, double car_width,
+                                                            double safety_margin);  
+
+    bool rush_sign;
     typedef struct 
     {
         bool have_goal_;
         geometry_msgs::PoseStamped current_goal_;
     }GoalState;
     GoalState goal_state_;
-    nav_msgs::OccupancyGrid inflated_map;
+    bool mapOriginChanged;
+
     typedef struct 
     {
         double x;
         double y;
         double yaw;
-        double vx;
-        double vy;
-        double w;
-        double ax;
-        double ay;
-        double aw;
-    }VehicleState;
-    VehicleState vehicle_state_;
+    } VehiclePose;
+    VehiclePose vehicle_pose;
+
+
+    typedef struct 
+    {
+        double xmin;
+        double xmax;
+        double ymin;
+        double ymax;
+    }MapSize;
+    MapSize map_size;
+
+    std::vector<std::vector<int>> origin_map;
+    std::vector<std::vector<int>> relaxed_grid_map;
+    std::vector<std::vector<int>> grid_map;
+    double grid_resolution_meters;
+    double safety_hor;
+    double car_length;
+    double car_width;
+
+    bool ready;
     
 private:
     // Callback functions
@@ -50,10 +72,13 @@ private:
     void executeGoalCallback(const move_base_msgs::MoveBaseGoalConstPtr& goal);
     void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg);
     void publishGoalMarker();
-    void publishMapVisualizations(const nav_msgs::OccupancyGrid& inflated_map);
-    void inflateObstacleGrid(const nav_msgs::OccupancyGrid& source_map, nav_msgs::OccupancyGrid& target_map, double inflate_radius, double target_resolution);
-    void imuCallback(const sensor_msgs::Imu::ConstPtr& imu_msg);
-    void odomCallback(const nav_msgs::Odometry::ConstPtr& odom_msg);
+    // Visualization function
+    void publishGridMapRviz(const std::vector<std::vector<int>>& grid_map,
+                            double x_min, double y_min,
+                            double grid_resolution_meters,
+                            const std::pair<int, int>& start,
+                            const std::pair<int, int>& goal,
+                            ros::Publisher& grid_pub_);
     // Planning functions
     
     // Publish goal marker
@@ -63,38 +88,30 @@ private:
 
     // Publishers
     ros::Publisher goal_marker_pub_;
-    ros::Publisher wall_marker_pub_;
-    ros::Publisher map_grid_pub_ ;      // Publish A* grid map
+    ros::Publisher map_origin_pub ;      // Publish A* map 
+    ros::Publisher map_relaxed_pub ;      // Publish A* map 
+    ros::Publisher map_safety_pub ;      // Publish A* map 
     // Subscribers
     ros::Subscriber scan_sub_;
     ros::Subscriber goal_sub_;
-    ros::Subscriber imu_sub_;
-    ros::Subscriber odom_sub_;
     std::unique_ptr<actionlib::SimpleActionServer<move_base_msgs::MoveBaseAction>> action_server_;
     
     // Data storage
     Matrix Map_To_Odom_Matrix;    // Map -> Odom 变换矩阵
-    typedef struct 
-    {
-        double xmin;
-        double xmax;
-        double ymin;
-        double ymax;
-    }MapSize;
-    MapSize map_size;
     
     // Configuration path
     std::string config_yaml_path;
     YAML::Node config;
 
-    double angular_velocity_z_odom;     // angular velocity z
-    double linear_velocity_x_odom;      // linear velocity x
-    double linear_velocity_y_odom;      // linear velocity y
-    double linear_acceleration_x_base; // linear acceleration x
-    double linear_acceleration_y_base; // linear acceleration y
-    double angular_acceleration_z_base;      // angular acceleration z
-    double angular_velocity_z_last_base;      // Last angular velocity z
-    ros::Time time_last;                    // Last time
+
+    Eigen::MatrixXd obstacle_points_matrix_; // Obstacle points in base_link frame
+    std::vector<std::pair<Eigen::Vector2d, ros::Time>> historical_obstacle_points_;
+
+
+    double last_path_origin_xmin_;
+    double last_path_origin_ymin_;
+
+
 };
 
 #endif // MAPPING_HPP
