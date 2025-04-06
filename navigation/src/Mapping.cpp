@@ -31,7 +31,6 @@ MappingNode::MappingNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node) :
     ROS_INFO("Mapping node initialized and started");
 
     mapOriginChanged = false;
-    rush_sign = false;
     ready = false;
     Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
     Eigen::Vector3d Base_To_Odom_Translation = Base_To_Odom_Matrix.Translation_Read();

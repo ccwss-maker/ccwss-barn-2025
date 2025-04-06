@@ -29,6 +29,7 @@ private:
     }Initial_Optimized_Trajectory_;
 
     // Callback functions
+    void TimerCallback(const ros::TimerEvent& event);
     void mapCallback(const nav_msgs::OccupancyGrid::ConstPtr & map);
     void pathCallback(const astar_msgs::AStarPathArray::ConstPtr & astar_path);
     double ComputeCostAndGradient(const Eigen::VectorXd& params, Eigen::VectorXd& grad);
@@ -45,12 +46,14 @@ private:
     void backwardGradT(const Eigen::VectorXd &tau, const Eigen::VectorXd &gradT, EIGENVEC &gradTau);
     template <typename EIGENVEC>
     void backwardGradP(const Eigen::VectorXd &xi, const Eigen::Matrix3Xd &gradP, EIGENVEC &gradXi);
+    void Emergency_Brake_Publish();
     // Publishers
     ros::Publisher First_Optimized_Trajectory_Publisher_;
     ros::Publisher First_Opimization_Marker_Publisher_;
     // Subscribers
     ros::Subscriber a_star_sub_;
     ros::Subscriber map_sub_;
+    ros::Timer timer_;
 
 
     std::string config_yaml_path;
@@ -59,7 +62,7 @@ private:
 
     cv::Mat dist_map; 
     nav_msgs::OccupancyGrid grid_map;
-
+    astar_msgs::AStarPathArray astar_path;
     std::vector<A_Star_Path_> A_Star_Path, A_Star_Path_Last;
     minco::MINCO_S3NU minco;
     int pieceN;
@@ -81,10 +84,11 @@ private:
     double max_linear_velocity;
     double max_angular_velocity;
 
-    
-    bool last_optimization_success;
     double last_cost = std::numeric_limits<double>::max();
+    double last_cost_Yaw = std::numeric_limits<double>::max();
     initial_optimized_msgs::InitialOptimizedTrajectory InitialOptimizedTrajectory_pub;
+
+    bool sloved;
 };
 
 #endif // FIRST_OPTIMIZATION_NODE_HPP

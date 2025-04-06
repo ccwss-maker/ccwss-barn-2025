@@ -1,10 +1,8 @@
 rush:
   k_v: 10
   k_w: 5
-
-resample:
-  min_spacing: 0.001   # 最小点间距（曲率大时，点更密集）
-  max_spacing: 0.05    # 最大点间距（曲率小时，点更稀疏）
+  
+skip_front_points: 4  # 跳过前方点数
 
 # 控制参数
 T: 0.03                # 控制周期 (秒)
@@ -25,7 +23,7 @@ control_limits:
   alpha_max: 4.0     # 最大角加速度 (rad/s^2)
 
 #曲率控制 Np大小
-curvature_sensitivity: 70.0   # 曲率对预测步长的影响程度，越大越敏感（建议 30 ~ 80）
+curvature_sensitivity: 0.0   # 曲率对预测步长的影响程度，越大越敏感（建议 30 ~ 80）
 window_size: 13        # 预测窗口大小
 
 
@@ -37,7 +35,7 @@ weights:
   v_ref: 100.0        # 弯道速度
 
 
-control: false
+control: true
 
 
 

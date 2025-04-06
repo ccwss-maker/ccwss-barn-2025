@@ -309,13 +309,13 @@ Visualization Manager:
       Use Timestamp: false
       Value: true
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /First_Optimization_Marker_Array
       Name: First Optimization Trajectory
       Namespaces:
-        trajectory: true
+        {}
       Queue Size: 100
-      Value: true
+      Value: false
     - Class: rviz/MarkerArray
       Enabled: false
       Marker Topic: /MPC/Origin_Reference_Traj
@@ -324,19 +324,34 @@ Visualization Manager:
         {}
       Queue Size: 100
       Value: false
-    - Class: rviz/MarkerArray
-      Enabled: false
-      Marker Topic: /mpc/reference_path
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 85; 0; 255
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Billboards
+      Line Width: 0.029999999329447746
       Name: MPC Reference Trajectory
-      Namespaces:
-        {}
-      Queue Size: 100
-      Value: false
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /mpc/reference_path
+      Unreliable: false
+      Value: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz/Path
       Color: 0; 0; 0
-      Enabled: false
+      Enabled: true
       Head Diameter: 0.30000001192092896
       Head Length: 0.20000000298023224
       Length: 0.30000001192092896
@@ -354,7 +369,7 @@ Visualization Manager:
       Shaft Length: 0.10000000149011612
       Topic: /mpc/predict_path
       Unreliable: false
-      Value: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -383,25 +398,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 11.438961029052734
+      Distance: 10.460789680480957
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.3048173189163208
-        Y: 1.7945510149002075
-        Z: -0.3007000684738159
+        X: -0.7239730358123779
+        Y: 2.354672908782959
+        Z: -4.557629585266113
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.374796748161316
+      Pitch: 1.264796495437622
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.500477313995361
+      Yaw: 4.525521278381348
     Saved: ~
 Window Geometry:
   Displays:

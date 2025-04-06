@@ -49,7 +49,6 @@ void AStarPlanningNode::TimerCallback(const ros::TimerEvent& event)
     
     // 尝试复用 last_path_：使用“放宽版”地图，只考虑车身本体，无安全冗余
     bool path_found = false;
-
     if (!last_path_.empty() &&
         !isPathColliding(last_path_, mapping_node_->relaxed_grid_map, map_size.xmin, map_size.ymin, grid_resolution_meters)) {
         // ROS_INFO("Reusing previous path under relaxed check (safety_hor = 0.0)");
@@ -60,7 +59,7 @@ void AStarPlanningNode::TimerCallback(const ros::TimerEvent& event)
         double safety_step = 0.02;
         double current_safety = mapping_node_->safety_hor;
         double best_safety = -1.0;
-        bool path_found = false;
+        path_found = false;
 
         while (current_safety >= 0.0) {
             auto grid_map = mapping_node_->generateInflatedGridMap(map_size.xmin, map_size.xmax,
@@ -96,7 +95,7 @@ void AStarPlanningNode::TimerCallback(const ros::TimerEvent& event)
     if (last_path_.empty()) {
         // ROS_WARN("Path planning failed: no valid path found.");
     } else {
-        publishLastAStarPath(); 
+        publishLastAStarPath(last_path_, mapping_node_->rush_sign, path_found); 
         publishAStarPathRviz(last_path_, map_size.xmin, map_size.ymin, grid_resolution_meters);
     }
 }
@@ -152,8 +151,8 @@ std::vector<A_Star_Path_> AStarPlanningNode::remapPathToNewMapOrigin(
 
 
 
-void AStarPlanningNode::publishLastAStarPath() {
-    if (last_path_.empty()) {
+void AStarPlanningNode::publishLastAStarPath(std::vector<A_Star_Path_> & path, bool rush_sign, bool emergency_braking) {
+    if (path.empty()) {
         ROS_WARN("No path to publish.");
         return;
     }
@@ -162,17 +161,18 @@ void AStarPlanningNode::publishLastAStarPath() {
     path_array.header.stamp = ros::Time::now();
     path_array.header.frame_id = "odom";
 
-    for (const auto& pt : last_path_) {
+    for (const auto& pt : path) {
         astar_msgs::AStarPath path_msg;
 
         // 将 grid 坐标转换为实际世界坐标（meter）
         path_msg.position.x = map_size.xmin + pt.position.x() * mapping_node_->grid_resolution_meters;
         path_msg.position.y = map_size.ymin + pt.position.y() * mapping_node_->grid_resolution_meters;
-        path_msg.position.z = pt.yaw;
-
+        // path_msg.position.z = pt.yaw;
+        path_msg.position.z = 0.0;
         path_array.paths.push_back(path_msg);
     }
-    path_array.rush_sign = mapping_node_->rush_sign;
+    path_array.rush_sign = rush_sign;
+    path_array.emergency_braking_sign = emergency_braking;
     a_star_path_pub_.publish(path_array);
 }
 
@@ -258,8 +258,8 @@ std::vector<A_Star_Path_> AStarPlanningNode::AStarSearch(const std::vector<std::
             for (size_t i = 0; i < path.size(); ++i) {
                 A_Star_Path_ a_star_node;
                 a_star_node.position = Eigen::Vector2d(path[i].first, path[i].second);
-                a_star_node.yaw = (i == 0) ? vehicle_pose.yaw :
-                                  atan2(path[i].second - path[i-1].second, path[i].first - path[i-1].first);
+                // a_star_node.yaw = (i == 0) ? vehicle_pose.yaw :
+                //                   atan2(path[i].second - path[i-1].second, path[i].first - path[i-1].first);
                 a_star_path.push_back(a_star_node);
             }
 
@@ -337,11 +337,10 @@ void AStarPlanningNode::publishAStarPathRviz(const std::vector<A_Star_Path_>& pa
         pose.pose.position.z = 0.0;
 
         tf::Quaternion q;
-        q.setRPY(0, 0, node.yaw);
-        pose.pose.orientation.x = q.x();
-        pose.pose.orientation.y = q.y();
-        pose.pose.orientation.z = q.z();
-        pose.pose.orientation.w = q.w();
+        pose.pose.orientation.x = 0;
+        pose.pose.orientation.y = 0;
+        pose.pose.orientation.z = 0;
+        pose.pose.orientation.w = 1;
 
         path_msg.poses.push_back(pose);
     }

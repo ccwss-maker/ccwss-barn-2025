@@ -13,6 +13,8 @@ MsgProcessNode::MsgProcessNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_n
 
   Tracking_Traj_Maker_Publisher_ = nh.advertise<visualization_msgs::MarkerArray>("/MPC/Origin_Reference_Traj", 1);
   config_yaml_path = "/jackal_ws/src/tracking/config/config.yaml";
+
+  rush_sign = false;
 }
 
 // -------------------- 工具函数 -------------------- //
@@ -157,9 +159,16 @@ void MsgProcessNode::AStarTrajectoryCallback(const astar_msgs::AStarPathArray::C
 
 void MsgProcessNode::FirstOptiTrajectoryCallback(const initial_optimized_msgs::InitialOptimizedTrajectory::ConstPtr& first_opti_path)
 {
+
+    rush_sign = first_opti_path->rush_sign;
+    if(first_opti_path->emergency_braking_sign)
+    {
+        control_points = Eigen::MatrixXd::Zero(3, 0);
+        return;
+    }
     YAML::Node config = YAML::LoadFile(config_yaml_path);
     minco::MINCO_S3NU minco;
-    double pieceN = first_opti_path->position.size() - 1;
+    double pieceN = first_opti_path->position.size() - 2;
     Eigen::Matrix3d initState = Eigen::Matrix3d::Zero();
     Eigen::Matrix3d finalState = Eigen::Matrix3d::Zero();
     initState.col(0) << first_opti_path->position.front().x,
@@ -184,8 +193,16 @@ void MsgProcessNode::FirstOptiTrajectoryCallback(const initial_optimized_msgs::I
     double T_total = times.sum();
     double T = config["T"].as<double>();
     int step = (int)(T_total / T);
-    control_points = Eigen::MatrixXd::Zero(3, step);
-    for(int i=0; i<step; i++)
+
+    int skip_front_points = config["skip_front_points"].as<int>();
+    int start_index = 0;
+    double front_sum = 0;
+    while (start_index < step && front_sum < times.head(skip_front_points).sum()) {
+        front_sum = start_index * T;
+        start_index++;
+    }
+    control_points = Eigen::MatrixXd::Zero(3, step - start_index);
+    for(int i=start_index; i<step; i++)
     {
         int current_segment;
         double local_t;
@@ -199,8 +216,13 @@ void MsgProcessNode::FirstOptiTrajectoryCallback(const initial_optimized_msgs::I
         double t5 = t1 * t4;
         Eigen::VectorXd T_Position(6);
         T_Position << t0, t1, t2, t3, t4, t5;
+        Eigen::VectorXd T_Velocity(6);
+        T_Velocity << 0, 1, 2 * t1, 3 * t2, 4 * t3, 5 * t4;
         Eigen::MatrixXd b = minco.b.block(current_segment * 6, 0, 6, 3).transpose();
-        control_points.block(0, i, 3, 1) = b * T_Position;
+        Eigen::Vector3d V = minco.b.block(current_segment * 6, 0, 6, 3).transpose() * T_Velocity;  // 速度向量
+        Eigen::Vector3d point = b * T_Position;
+        point(2) = std::atan2(V(1), V(0));
+        control_points.col(i - start_index) = point;
     }
 
     // ------------------- 参考轨迹发布 ------------------- //
@@ -210,7 +232,7 @@ void MsgProcessNode::FirstOptiTrajectoryCallback(const initial_optimized_msgs::I
     delete_marker.action = visualization_msgs::Marker::DELETEALL;
     marker_array.markers.push_back(delete_marker);
     int ID = 0;
-    for (int i = 0; i < control_points.cols(); ++i) {
+    for (int i = 0; i < control_points.cols(); i++) {
         visualization_msgs::Marker point_marker;
         point_marker.header.frame_id = "odom";
         point_marker.header.stamp = ros::Time::now();
@@ -235,7 +257,7 @@ void MsgProcessNode::FirstOptiTrajectoryCallback(const initial_optimized_msgs::I
         // 设置点的坐标
         point_marker.pose.position.x = control_points(0, i);
         point_marker.pose.position.y = control_points(1, i);
-        point_marker.pose.position.z = 0.3;
+        point_marker.pose.position.z = 0;
         point_marker.pose.orientation.x = 0.0;
         point_marker.pose.orientation.y = 0.0;
         point_marker.pose.orientation.z = 0.0;

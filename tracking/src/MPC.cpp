@@ -24,15 +24,15 @@ MPCNode::MPCNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node, std::shar
     // 发布器初始化
     twist_cmd_pub_ = nh.advertise<geometry_msgs::Twist>("/twist_marker_server/cmd_vel", 10);
     predict_path_pub_ = nh.advertise<nav_msgs::Path>("/mpc/predict_path", 1);
-    // ref_path_pub_ = nh.advertise<nav_msgs::Path>("/mpc/reference_path", 1);
-    marker_pub_ = nh.advertise<visualization_msgs::MarkerArray>("/mpc/reference_path", 1);
+    ref_path_pub_ = nh.advertise<nav_msgs::Path>("/mpc/reference_path", 1);
+    // marker_pub_ = nh.advertise<visualization_msgs::MarkerArray>("/mpc/reference_path", 1);
 
     rush_sign = false;
 }
 
 // -------------------- MPC 核心控制回调函数 -------------------- //
 void MPCNode::TimerCallback(const ros::TimerEvent& event)
-{
+{   
     // ---------------- 获取TF与基础配置 ---------------- //
     Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
     Matrix Odom_To_Base_Matrix = tf_subscriber_node_->Matrix_Read("base_link", "odom");
@@ -40,16 +40,6 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
 
     Eigen::MatrixXd control_points = msg_process_node_->control_points;
     cv::Mat dist_map = msg_process_node_->dist_map;
-
-    // 若无控制点，停止控制
-    if (control_points.cols() == 0) {
-        geometry_msgs::Twist twist_cmd;
-        twist_cmd.linear.x = 0.0;
-        twist_cmd.angular.z = 0.0;
-        twist_cmd_pub_.publish(twist_cmd);
-        return;
-    }
-
     // 控制参数读取
     T = config["T"].as<double>();
     v_min_ = config["control_limits"]["v_min"].as<double>();
@@ -78,6 +68,7 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
     // ---------------- 加速模式（Rush）控制 ---------------- //
     if (msg_process_node_->rush_sign) rush_sign = true;
     if (rush_sign) {
+        std::cout << "rush" << std::endl;
         Eigen::Vector3d goal = control_points.col(control_points.cols() - 1);
         Eigen::Vector4d goal_odom;
         goal_odom << goal(0), goal(1), 0.0, 1.0;
@@ -97,6 +88,21 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
         twist_cmd.linear.x = v_cmd;
         twist_cmd.angular.z = omega_cmd;
         twist_cmd_pub_.publish(twist_cmd);
+        return;
+    }
+
+    static ros::Time emergency_brake_expire_time_ = ros::Time::now();
+    geometry_msgs::Twist twist_cmd;
+
+    if (control_points.cols() == 0) {
+        emergency_brake_expire_time_ = ros::Time::now() + ros::Duration(0.3);
+    }
+
+    if (ros::Time::now() <= emergency_brake_expire_time_) {
+        twist_cmd.linear.x = 0.0;
+        twist_cmd.angular.z = 0.0;
+        twist_cmd_pub_.publish(twist_cmd);
+        std::cout << "stop" << std::endl;
         return;
     }
 
@@ -313,40 +319,28 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
     predict_path_pub_.publish(predict_path);
 
     // ------------------- 参考轨迹发布 ------------------- //
-    visualization_msgs::MarkerArray marker_array;
-    int ID = 0;
+    nav_msgs::Path path_msg;
+    path_msg.header.frame_id = "odom";
+    path_msg.header.stamp = ros::Time::now();
+
     for (int i = 0; i < Np; ++i) {
-        visualization_msgs::Marker point_marker;
-        point_marker.header.frame_id = "odom";
-        point_marker.header.stamp = ros::Time::now();
-        point_marker.ns = "ref_trajectory";
-        point_marker.type = visualization_msgs::Marker::SPHERE;
-        point_marker.action = visualization_msgs::Marker::ADD;
+        geometry_msgs::PoseStamped pose;
+        pose.header = path_msg.header;
+        pose.pose.position.x = ref(3 * i + 0);
+        pose.pose.position.y = ref(3 * i + 1);
+        pose.pose.position.z = 0.2;
 
-        // 为每个点设置唯一的ID
-        point_marker.id = ID++;  // 为每个点分配唯一的ID
+        double yaw = ref(3 * i + 2);
+        tf::Quaternion q;
+        q.setRPY(0, 0, yaw);
+        pose.pose.orientation.x = q.x();
+        pose.pose.orientation.y = q.y();
+        pose.pose.orientation.z = q.z();
+        pose.pose.orientation.w = q.w();
 
-        // 设置Marker的比例
-        point_marker.scale.x = 0.05;  // 点的大小
-        point_marker.scale.y = 0.05;
-        point_marker.scale.z = 0.05;
-
-        // 设置Marker的颜色
-        point_marker.color.r = 0.0;  // 红色分量
-        point_marker.color.g = 0.0;  // 绿色分量
-        point_marker.color.b = 1.0;  // 蓝色分量
-        point_marker.color.a = 1.0;  // 透明度（alpha）
-
-        // 设置点的坐标
-        point_marker.pose.position.x = ref(3 * i + 0);
-        point_marker.pose.position.y = ref(3 * i + 1);
-        point_marker.pose.position.z = 0.3;
-        point_marker.pose.orientation.x = 0.0;
-        point_marker.pose.orientation.y = 0.0;
-        point_marker.pose.orientation.z = 0.0;
-        point_marker.pose.orientation.w = 1.0;
-        // 将Marker添加到MarkerArray
-        marker_array.markers.push_back(point_marker);
+        path_msg.poses.push_back(pose);
     }
-    marker_pub_.publish(marker_array);
+
+    ref_path_pub_.publish(path_msg);
+
 }

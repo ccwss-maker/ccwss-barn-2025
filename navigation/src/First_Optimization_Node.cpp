@@ -10,10 +10,14 @@ FirstOptimizationNode::FirstOptimizationNode()
     a_star_sub_ = nh.subscribe("/A_Star_Planned_Path", 1, &FirstOptimizationNode::pathCallback, this);
     map_sub_ = nh.subscribe("/A_Star_Map_Relaxed", 1, &FirstOptimizationNode::mapCallback, this);
     
+    // 创建定时器
+    timer_ = nh.createTimer(ros::Duration(0.02), &FirstOptimizationNode::TimerCallback, this);
+
     First_Optimized_Trajectory_Publisher_ = nh.advertise<initial_optimized_msgs::InitialOptimizedTrajectory>("/First_Optimized_Trajectory", 1);
     First_Opimization_Marker_Publisher_ = nh.advertise<visualization_msgs::MarkerArray>("/First_Optimization_Marker_Array", 1);
     ROS_INFO("First Optimization node initialized and started");
-    last_optimization_success = false;
+
+    sloved = false;
 }
 
 void FirstOptimizationNode::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr & map)
@@ -42,29 +46,38 @@ void FirstOptimizationNode::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr 
     dist_map = dist_pixel * grid_map.info.resolution;
 }
 
-void FirstOptimizationNode::pathCallback(const astar_msgs::AStarPathArray::ConstPtr & astar_path)
+void FirstOptimizationNode::pathCallback(const astar_msgs::AStarPathArray::ConstPtr & astar_path_)
 {
-    config = YAML::LoadFile(config_yaml_path);
-
-    if (astar_path->paths.empty()) {
+    if(astar_path_->paths.empty()) {
         ROS_ERROR("Received empty A* path");
         return;
     }
+    astar_path = *astar_path_;
+}
 
-    Eigen::Vector3d A_Star_Path_front(astar_path->paths.front().position.x,
-                                      astar_path->paths.front().position.y,
-                                      astar_path->paths.front().position.z);
-    Eigen::Vector3d A_Star_Path_back(astar_path->paths.back().position.x,
-                                     astar_path->paths.back().position.y,
-                                     astar_path->paths.back().position.z);
+void FirstOptimizationNode::TimerCallback(const ros::TimerEvent& event)
+{
+    if (astar_path.paths.empty()) {
+        // ROS_ERROR("A* path not ready");
+        return;
+    }
+
+    config = YAML::LoadFile(config_yaml_path);
+
+    Eigen::Vector3d A_Star_Path_front(astar_path.paths.front().position.x,
+                                      astar_path.paths.front().position.y,
+                                      astar_path.paths.front().position.z);
+    Eigen::Vector3d A_Star_Path_back(astar_path.paths.back().position.x,
+                                     astar_path.paths.back().position.y,
+                                     astar_path.paths.back().position.z);
 
     A_Star_Path.clear();
     int point_interval = config["A_Star_Point_interval"].as<int>();
-    for (int i = 1; i < astar_path->paths.size() - 2; i += (point_interval + 1)) {
+    for (int i = 1; i < astar_path.paths.size() - 2; i += (point_interval + 1)) {
         A_Star_Path_ path_point;
-        path_point.position = Eigen::Vector3d(astar_path->paths[i].position.x,
-                                              astar_path->paths[i].position.y,
-                                              astar_path->paths[i].position.z);
+        path_point.position = Eigen::Vector3d(astar_path.paths[i].position.x,
+                                              astar_path.paths[i].position.y,
+                                              astar_path.paths[i].position.z);
         A_Star_Path.push_back(path_point);
     }
 
@@ -72,20 +85,21 @@ void FirstOptimizationNode::pathCallback(const astar_msgs::AStarPathArray::Const
     bool path_changed = false;
     if (A_Star_Path_Last.size() != A_Star_Path.size()) {
         path_changed = true;
-        std::cout<<"path_changed_size"<<std::endl;
     } else {
         for (int i = 0; i < A_Star_Path.size(); ++i) {
-            if ((A_Star_Path[i].position - A_Star_Path_Last[i].position).norm() > 0.01) {
+            if ((A_Star_Path[i].position - A_Star_Path_Last[i].position).norm() > 0.1) {
                 path_changed = true;
-                    std::cout<<"path_changed"<<std::endl;
                 break;
             }
         }
-        std::cout<<"path_nochanged"<<std::endl;
     }
 
     if (path_changed) {
         last_cost = std::numeric_limits<double>::max();  // 重置上次代价
+        last_cost_Yaw = std::numeric_limits<double>::max();  // 重置上次代价
+        sloved = false;
+        std::cout << "Path changed, re-optimizing..." << std::endl;
+        Emergency_Brake_Publish();
     }
     A_Star_Path_Last = A_Star_Path;
 
@@ -108,8 +122,8 @@ void FirstOptimizationNode::pathCallback(const astar_msgs::AStarPathArray::Const
     Eigen::VectorXd T = Eigen::VectorXd::Ones(pieceN);
     for(int i = 0; i < pieceN; ++i)
     {
-        Eigen::Vector2d p0 = Eigen::Vector2d(astar_path->paths[i].position.x, astar_path->paths[i].position.y);
-        Eigen::Vector2d p1 = Eigen::Vector2d(astar_path->paths[i+1].position.x, astar_path->paths[i+1].position.y);
+        Eigen::Vector2d p0 = Eigen::Vector2d(astar_path.paths[i].position.x, astar_path.paths[i].position.y);
+        Eigen::Vector2d p1 = Eigen::Vector2d(astar_path.paths[i+1].position.x, astar_path.paths[i+1].position.y);
         double distance = (p1 - p0).norm();
         T(i) = distance / config["init_velocity"].as<double>();
     }
@@ -151,41 +165,27 @@ void FirstOptimizationNode::pathCallback(const astar_msgs::AStarPathArray::Const
         niter = solver.minimize(cost_function, x, min_cost);
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-        ROS_INFO("Initial Optimization Finished in %ld ms, iterations: %d, cost: %f", duration.count(), niter, min_cost);
+        // ROS_INFO("Initial Optimization Finished in %ld ms, iterations: %d, cost: %f", duration.count(), niter, min_cost);
 
         forwardT(tau, times);
         forwardP(xi, points);
         minco.setParameters(points, times);
-        if(!tau.allFinite())
-            ROS_ERROR("tau contain NaN or Inf");
-        if(!times.allFinite())
-            ROS_ERROR("times contain NaN or Inf");
-        if(!points.allFinite())
-            ROS_ERROR("points contain NaN or Inf");
         Eigen::MatrixX3d GradByPoints_Position = Eigen::MatrixX3d::Zero(pieceN - 1, 3);
         Eigen::VectorXd GradByTimes_Position = Eigen::VectorXd::Zero(pieceN);
         cost_Yaw = ComputeCostAndGradient_Position(GradByPoints_Position, GradByTimes_Position);
     } catch (const std::exception& e) {
-        ROS_WARN("Optimization failed: %s", e.what());
+        // ROS_WARN("Optimization failed: %s", e.what());
+        return;
     }
 
     // 判断是否更新轨迹
-    if (cost_Yaw < 60 && min_cost < 60)
+    if (cost_Yaw < 5 && min_cost < 40)
     {
-        for (int i = 0; i < pieceN - 1; i++) {
-            Eigen::Vector3d V = minco.b.block((i + 1) * 6 + 1, 0, 1, 3).transpose();
-            double linear_v = std::sqrt(V(0) * V(0) + V(1) * V(1));
-            double angular_v = std::abs(V(2));
-            if (linear_v > max_linear_velocity) {
-                ROS_WARN("Linear velocity exceeded: %f", linear_v);
-            }
-            if (angular_v > max_angular_velocity) {
-                ROS_WARN("Angular velocity exceeded: %f", angular_v);
-            }
-        }
-        if(min_cost < last_cost)
+        if(min_cost < last_cost && cost_Yaw < last_cost_Yaw)
         {
+            sloved = true;
             last_cost = min_cost;
+            last_cost_Yaw = cost_Yaw;
 
             InitialOptimizedTrajectory_pub.position.clear();
             InitialOptimizedTrajectory_pub.times.clear();
@@ -195,7 +195,6 @@ void FirstOptimizationNode::pathCallback(const astar_msgs::AStarPathArray::Const
             {
                 InitialOptimizedTrajectory_pub.times.push_back(times[i]);
             }
-
             p.x = A_Star_Path_front(0); p.y = A_Star_Path_front(1); p.z = A_Star_Path_front(2);
             InitialOptimizedTrajectory_pub.position.push_back(p);
             for (int i = 0; i < points.cols(); i++) {
@@ -205,43 +204,45 @@ void FirstOptimizationNode::pathCallback(const astar_msgs::AStarPathArray::Const
             p.x = A_Star_Path_back(0); p.y = A_Star_Path_back(1); p.z = A_Star_Path_back(2);
             InitialOptimizedTrajectory_pub.position.push_back(p);
 
-            ROS_INFO("Updated trajectory with better cost: %f", cost_Yaw);
+            ROS_INFO("Updated trajectory with better cost_Yaw: %f, cost: %f", cost_Yaw, min_cost);
         }
     }
-    else if (last_cost == std::numeric_limits<double>::max()) {
-        // 还没成功优化过，fallback 发布原始路径
-        ROS_WARN("Fallback: No valid optimized trajectory. Publishing raw path.");
-        InitialOptimizedTrajectory_pub.position.clear();
-        InitialOptimizedTrajectory_pub.times.clear();
+    // else if (last_cost == std::numeric_limits<double>::max()) {
+    //     // 还没成功优化过，fallback 发布原始路径
+    //     ROS_WARN("Fallback: No valid optimized trajectory. Publishing raw path.");
+    //     InitialOptimizedTrajectory_pub.position.clear();
+    //     InitialOptimizedTrajectory_pub.times.clear();
 
-        geometry_msgs::Vector3 p;
-        p.x = A_Star_Path_front(0); p.y = A_Star_Path_front(1); p.z = A_Star_Path_front(2);
-        InitialOptimizedTrajectory_pub.position.push_back(p);
-        for (const auto& pt : A_Star_Path) {
-            p.x = pt.position(0); p.y = pt.position(1); p.z = pt.position(2);
-            InitialOptimizedTrajectory_pub.position.push_back(p);
-        }
-        p.x = A_Star_Path_back(0); p.y = A_Star_Path_back(1); p.z = A_Star_Path_back(2);
-        InitialOptimizedTrajectory_pub.position.push_back(p);
+    //     geometry_msgs::Vector3 p;
+    //     p.x = A_Star_Path_front(0); p.y = A_Star_Path_front(1); p.z = A_Star_Path_front(2);
+    //     InitialOptimizedTrajectory_pub.position.push_back(p);
+    //     for (const auto& pt : A_Star_Path) {
+    //         p.x = pt.position(0); p.y = pt.position(1); p.z = pt.position(2);
+    //         InitialOptimizedTrajectory_pub.position.push_back(p);
+    //     }
+    //     p.x = A_Star_Path_back(0); p.y = A_Star_Path_back(1); p.z = A_Star_Path_back(2);
+    //     InitialOptimizedTrajectory_pub.position.push_back(p);
 
-        for(int i = 0; i < pieceN; ++i)
-        {
-            InitialOptimizedTrajectory_pub.times.push_back(T(i));
-        }
+    //     for(int i = 0; i < pieceN; ++i)
+    //     {
+    //         InitialOptimizedTrajectory_pub.times.push_back(T(i));
+    //     }
 
-    }
+    // }
 
     // 发布轨迹
-    initial_optimized_msgs::InitialOptimizedTrajectory msg;
-    msg.header.frame_id = "odom";
-    msg.header.stamp = ros::Time::now();
-    msg.position = InitialOptimizedTrajectory_pub.position;
-    msg.times = InitialOptimizedTrajectory_pub.times;
-    msg.rush_sign = astar_path->rush_sign;
-    First_Optimized_Trajectory_Publisher_.publish(msg);
-
-    if (config["Publish_First_Optimum_Marker"].as<bool>(true)) {
-        visualizeTrajectory(msg);
+    if(sloved) {
+        initial_optimized_msgs::InitialOptimizedTrajectory msg;
+        msg.header.frame_id = "odom";
+        msg.header.stamp = ros::Time::now();
+        msg.position = InitialOptimizedTrajectory_pub.position;
+        msg.times = InitialOptimizedTrajectory_pub.times;
+        msg.rush_sign = astar_path.rush_sign;
+        msg.emergency_braking_sign = false;
+        First_Optimized_Trajectory_Publisher_.publish(msg);
+        if (config["Publish_First_Optimum_Marker"].as<bool>(true)) {
+            visualizeTrajectory(msg);
+        }
     }
 }
 
@@ -299,11 +300,11 @@ double FirstOptimizationNode::ComputeCostAndGradient(const Eigen::VectorXd& para
             GradByTimes[i] += 2 * weight_linear_velocity * diff;
         }
 
-        if (angular_v > max_angular_velocity) {
-            double diff = angular_v - max_angular_velocity;
-            cost += weight_angular_velocity * diff * diff;
-            GradByTimes[i] += 2 * weight_angular_velocity * diff;
-        }
+        // if (angular_v > max_angular_velocity) {
+        //     double diff = angular_v - max_angular_velocity;
+        //     cost += weight_angular_velocity * diff * diff;
+        //     GradByTimes[i] += 2 * weight_angular_velocity * diff;
+        // }
     }
     
     backwardGradT(tau, gradByTimes, gradTau);
@@ -513,7 +514,7 @@ void FirstOptimizationNode::visualizeTrajectory(initial_optimized_msgs::InitialO
         // 设置点的坐标
         point_marker.pose.position.x = InitialOptimizedTrajectory.position[i].x;
         point_marker.pose.position.y = InitialOptimizedTrajectory.position[i].y;
-        point_marker.pose.position.z = 0.3;
+        point_marker.pose.position.z = 0;
         point_marker.pose.orientation.x = 0.0;
         point_marker.pose.orientation.y = 0.0;
         point_marker.pose.orientation.z = 0.0;
@@ -525,4 +526,13 @@ void FirstOptimizationNode::visualizeTrajectory(initial_optimized_msgs::InitialO
 
     // 发布新的轨迹标记
     First_Opimization_Marker_Publisher_.publish(marker_array);
+}
+
+void FirstOptimizationNode::Emergency_Brake_Publish()
+{
+    initial_optimized_msgs::InitialOptimizedTrajectory msg;
+    msg.header.frame_id = "odom";
+    msg.header.stamp = ros::Time::now();
+    msg.emergency_braking_sign = true;
+    First_Optimized_Trajectory_Publisher_.publish(msg);
 }

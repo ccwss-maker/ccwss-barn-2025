@@ -45,7 +45,7 @@ struct AStarNode {
 // A* Path structure to store path points with position and yaw
 typedef struct {
     Eigen::Vector2d position;
-    double yaw;
+    // double yaw;
 } A_Star_Path_;
 
 
@@ -76,7 +76,7 @@ private:
                                                         double new_xmin, double new_ymin,
                                                         double resolution);
 
-    void publishLastAStarPath();
+    void publishLastAStarPath(std::vector<A_Star_Path_> & path, bool rush_sign, bool emergency_braking);
     // TF listener node
     std::shared_ptr<MappingNode> mapping_node_;
 
