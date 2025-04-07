@@ -19,20 +19,20 @@ AStarPlanningNode::AStarPlanningNode(std::shared_ptr<MappingNode> mapping_node, 
 
 void AStarPlanningNode::TimerCallback(const ros::TimerEvent& event)
 {
-    Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
-    Eigen::Vector3d Base_To_Odom_Translation = Base_To_Odom_Matrix.Translation_Read();
-    double roll, pitch, yaw;
-    tf::Quaternion transform_q = Base_To_Odom_Matrix.Quaternion_Read();
-    tf::Matrix3x3(transform_q).getRPY(roll, pitch, yaw);
-    vehicle_pose.x = Base_To_Odom_Translation.x();
-    vehicle_pose.y = Base_To_Odom_Translation.y();
-    vehicle_pose.yaw = yaw;
+    // Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
+    // Eigen::Vector3d Base_To_Odom_Translation = Base_To_Odom_Matrix.Translation_Read();
+    // double roll, pitch, yaw;
+    // tf::Quaternion transform_q = Base_To_Odom_Matrix.Quaternion_Read();
+    // tf::Matrix3x3(transform_q).getRPY(roll, pitch, yaw);
+    // vehicle_pose.x = Base_To_Odom_Translation.x();
+    // vehicle_pose.y = Base_To_Odom_Translation.y();
+    // vehicle_pose.yaw = yaw;
 
     if (!mapping_node_->goal_state_.have_goal_ || !mapping_node_->ready) {
         return;
     }
     config = YAML::LoadFile(config_yaml_path);
-    // vehicle_pose = mapping_node_->vehicle_pose;
+    vehicle_pose = mapping_node_->vehicle_pose;
     map_size =  mapping_node_->map_size;
     double grid_resolution_meters = mapping_node_->grid_resolution_meters;
     if (!last_path_.empty() && mapping_node_->mapOriginChanged) {

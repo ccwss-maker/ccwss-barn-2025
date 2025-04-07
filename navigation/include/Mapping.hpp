@@ -44,6 +44,7 @@ public:
         double y;
         double yaw;
     } VehiclePose;
+
     VehiclePose vehicle_pose;
 
 

@@ -161,14 +161,23 @@ void MsgProcessNode::FirstOptiTrajectoryCallback(const initial_optimized_msgs::I
 {
 
     rush_sign = first_opti_path->rush_sign;
-    if(first_opti_path->emergency_braking_sign)
-    {
-        control_points = Eigen::MatrixXd::Zero(3, 0);
+    // if(first_opti_path->emergency_braking_sign)
+    // {
+    //     control_points = Eigen::MatrixXd::Zero(3, 0);
+    //     return;
+    // }
+    if (first_opti_path->position.size() < 3) {
+        ROS_ERROR("Insufficient position data points (need at least 3)");
         return;
     }
     YAML::Node config = YAML::LoadFile(config_yaml_path);
     minco::MINCO_S3NU minco;
-    double pieceN = first_opti_path->position.size() - 2;
+    int pieceN = first_opti_path->position.size() - 1;
+    if (first_opti_path->times.size() != pieceN) {
+        ROS_ERROR("Times array size (%ld) doesn't match expected value (%d)", 
+                  first_opti_path->times.size(), pieceN);
+        return;
+    }
     Eigen::Matrix3d initState = Eigen::Matrix3d::Zero();
     Eigen::Matrix3d finalState = Eigen::Matrix3d::Zero();
     initState.col(0) << first_opti_path->position.front().x,

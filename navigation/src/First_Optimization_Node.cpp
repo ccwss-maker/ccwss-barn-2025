@@ -224,7 +224,7 @@ void FirstOptimizationNode::TimerCallback(const ros::TimerEvent& event)
     }
 
     // 发布轨迹
-    if(sloved) {
+    // if(sloved) {
         initial_optimized_msgs::InitialOptimizedTrajectory msg;
         msg.header.frame_id = "odom";
         msg.header.stamp = ros::Time::now();
@@ -236,7 +236,7 @@ void FirstOptimizationNode::TimerCallback(const ros::TimerEvent& event)
         if (config["Publish_First_Optimum_Marker"].as<bool>(true)) {
             visualizeTrajectory(msg);
         }
-    }
+    // }
 }
 
 

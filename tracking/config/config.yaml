@@ -29,4 +29,4 @@ control_limits:
   max_deceleration: 2  # 最大减速度 (m/s²)
 
 # 是否执行控制命令
-control: false
+control: true
