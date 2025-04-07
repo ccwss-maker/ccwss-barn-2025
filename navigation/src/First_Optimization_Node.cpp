@@ -1,3 +1,4 @@
+
 #include "First_Optimization_Node.hpp"
 #include <chrono>
 FirstOptimizationNode::FirstOptimizationNode()
@@ -118,20 +119,11 @@ void FirstOptimizationNode::TimerCallback(const ros::TimerEvent& event)
     Eigen::Map<Eigen::VectorXd> tau(x.data(), temporalDim);
     Eigen::Map<Eigen::VectorXd> xi(x.data() + temporalDim, spatialDim);
 
-    // Eigen::VectorXd T = config["init_time"].as<double>() * Eigen::VectorXd::Ones(pieceN);
-    Eigen::VectorXd T = Eigen::VectorXd::Ones(pieceN);
-    for(int i = 0; i < pieceN; ++i)
-    {
-        Eigen::Vector2d p0 = Eigen::Vector2d(astar_path.paths[i].position.x, astar_path.paths[i].position.y);
-        Eigen::Vector2d p1 = Eigen::Vector2d(astar_path.paths[i+1].position.x, astar_path.paths[i+1].position.y);
-        double distance = (p1 - p0).norm();
-        T(i) = distance / config["init_velocity"].as<double>();
-    }
-
-
+    Eigen::VectorXd T = config["init_time"].as<double>() * Eigen::VectorXd::Ones(pieceN);
 
     for (int i = 0; i < pieceN - 1; ++i)
         xi.segment(3 * i, 3) = A_Star_Path[i].position;
+    backwardT(T, tau);
 
     weight_time = config["traj_opimiz_weight_time"].as<double>();
     weight_position_x = config["traj_opimiz_weight_position_x"].as<double>();
@@ -149,6 +141,7 @@ void FirstOptimizationNode::TimerCallback(const ros::TimerEvent& event)
     param.epsilon = config["first_optimum_epsilon"].as<double>();
     param.max_iterations = config["first_optimum_max_iterations"].as<int>();
     param.min_step = config["first_optimum_min_step"].as<double>();
+
     LBFGSpp::LBFGSSolver<double> solver(param);
 
     std::function<double(const Eigen::VectorXd&, Eigen::VectorXd&)> cost_function =
@@ -174,7 +167,7 @@ void FirstOptimizationNode::TimerCallback(const ros::TimerEvent& event)
         Eigen::VectorXd GradByTimes_Position = Eigen::VectorXd::Zero(pieceN);
         cost_Yaw = ComputeCostAndGradient_Position(GradByPoints_Position, GradByTimes_Position);
     } catch (const std::exception& e) {
-        // ROS_WARN("Optimization failed: %s", e.what());
+        ROS_WARN("Optimization failed: %s", e.what());
         return;
     }
 
@@ -207,28 +200,28 @@ void FirstOptimizationNode::TimerCallback(const ros::TimerEvent& event)
             ROS_INFO("Updated trajectory with better cost_Yaw: %f, cost: %f", cost_Yaw, min_cost);
         }
     }
-    // else if (last_cost == std::numeric_limits<double>::max()) {
-    //     // 还没成功优化过，fallback 发布原始路径
-    //     ROS_WARN("Fallback: No valid optimized trajectory. Publishing raw path.");
-    //     InitialOptimizedTrajectory_pub.position.clear();
-    //     InitialOptimizedTrajectory_pub.times.clear();
+    else if (last_cost == std::numeric_limits<double>::max()) {
+        // 还没成功优化过，fallback 发布原始路径
+        ROS_WARN("Fallback: No valid optimized trajectory. Publishing raw path.");
+        InitialOptimizedTrajectory_pub.position.clear();
+        InitialOptimizedTrajectory_pub.times.clear();
 
-    //     geometry_msgs::Vector3 p;
-    //     p.x = A_Star_Path_front(0); p.y = A_Star_Path_front(1); p.z = A_Star_Path_front(2);
-    //     InitialOptimizedTrajectory_pub.position.push_back(p);
-    //     for (const auto& pt : A_Star_Path) {
-    //         p.x = pt.position(0); p.y = pt.position(1); p.z = pt.position(2);
-    //         InitialOptimizedTrajectory_pub.position.push_back(p);
-    //     }
-    //     p.x = A_Star_Path_back(0); p.y = A_Star_Path_back(1); p.z = A_Star_Path_back(2);
-    //     InitialOptimizedTrajectory_pub.position.push_back(p);
+        geometry_msgs::Vector3 p;
+        p.x = A_Star_Path_front(0); p.y = A_Star_Path_front(1); p.z = A_Star_Path_front(2);
+        InitialOptimizedTrajectory_pub.position.push_back(p);
+        for (const auto& pt : A_Star_Path) {
+            p.x = pt.position(0); p.y = pt.position(1); p.z = pt.position(2);
+            InitialOptimizedTrajectory_pub.position.push_back(p);
+        }
+        p.x = A_Star_Path_back(0); p.y = A_Star_Path_back(1); p.z = A_Star_Path_back(2);
+        InitialOptimizedTrajectory_pub.position.push_back(p);
 
-    //     for(int i = 0; i < pieceN; ++i)
-    //     {
-    //         InitialOptimizedTrajectory_pub.times.push_back(T(i));
-    //     }
+        for(int i = 0; i < pieceN; ++i)
+        {
+            InitialOptimizedTrajectory_pub.times.push_back(T(i));
+        }
 
-    // }
+    }
 
     // 发布轨迹
     if(sloved) {

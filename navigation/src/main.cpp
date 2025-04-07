@@ -13,7 +13,8 @@ int main(int argc, char **argv)
     auto mapping_node = std::allocate_shared<MappingNode>(
             Eigen::aligned_allocator<MappingNode>(), tf_subscriber_node);
     // 创建轨迹规划节点并传入TF监听器
-    auto route_planning_node = std::make_shared<AStarPlanningNode>(mapping_node);
+    auto route_planning_node = std::allocate_shared<AStarPlanningNode>(
+        Eigen::aligned_allocator<MappingNode>(), mapping_node, tf_subscriber_node);
     
     
     auto first_optimization_node = std::make_shared<FirstOptimizationNode>();

@@ -2,7 +2,7 @@
 #include "math.h"
 #include <OsqpEigen/OsqpEigen.h>
 #include <algorithm>
-
+#include <numeric>
 // -------------------- 工具函数 -------------------- //
 template <typename T>
 T clamp(T val, T min_val, T max_val) {
@@ -24,40 +24,15 @@ MPCNode::MPCNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node, std::shar
     // 发布器初始化
     twist_cmd_pub_ = nh.advertise<geometry_msgs::Twist>("/twist_marker_server/cmd_vel", 10);
     predict_path_pub_ = nh.advertise<nav_msgs::Path>("/mpc/predict_path", 1);
-    // ref_path_pub_ = nh.advertise<nav_msgs::Path>("/mpc/reference_path", 1);
-    marker_pub_ = nh.advertise<visualization_msgs::MarkerArray>("/mpc/reference_path", 1);
+    ref_path_pub_ = nh.advertise<nav_msgs::Path>("/mpc/reference_path", 1);
+    // marker_pub_ = nh.advertise<visualization_msgs::MarkerArray>("/mpc/reference_path", 1);
 
     rush_sign = false;
 }
 
-// -------------------- 计算障碍物代价 -------------------- //
-double MPCNode::computeObstacleCost(const Eigen::Vector2d& pos_world,
-    const nav_msgs::OccupancyGrid& grid_map,
-    const cv::Mat& dist_map,
-    double w_obs,
-    double sigma)
-{
-    YAML::Node config = YAML::LoadFile(config_yaml_path);
-    double origin_x = grid_map.info.origin.position.x;
-    double origin_y = grid_map.info.origin.position.y;
-    double resolution = grid_map.info.resolution;
-
-    int x = static_cast<int>((pos_world.x() - origin_x) / resolution);
-    int y = static_cast<int>((pos_world.y() - origin_y) / resolution);
-
-    if (x < 0 || x >= dist_map.cols || y < 0 || y >= dist_map.rows)
-        return 0.0;
-
-    float d = dist_map.at<float>(y, x);
-    double ret = w_obs * std::exp(-d / sigma);
-    ret = std::min(ret, config["max_obs"].as<double>());
-
-    return ret; // 距离越近，惩罚越大
-}
-
 // -------------------- MPC 核心控制回调函数 -------------------- //
 void MPCNode::TimerCallback(const ros::TimerEvent& event)
-{
+{   
     // ---------------- 获取TF与基础配置 ---------------- //
     Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
     Matrix Odom_To_Base_Matrix = tf_subscriber_node_->Matrix_Read("base_link", "odom");
@@ -65,16 +40,6 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
 
     Eigen::MatrixXd control_points = msg_process_node_->control_points;
     cv::Mat dist_map = msg_process_node_->dist_map;
-
-    // 若无控制点，停止控制
-    if (control_points.cols() == 0) {
-        geometry_msgs::Twist twist_cmd;
-        twist_cmd.linear.x = 0.0;
-        twist_cmd.angular.z = 0.0;
-        twist_cmd_pub_.publish(twist_cmd);
-        return;
-    }
-
     // 控制参数读取
     T = config["T"].as<double>();
     v_min_ = config["control_limits"]["v_min"].as<double>();
@@ -86,12 +51,11 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
     double alpha_min = config["control_limits"]["alpha_min"].as<double>();
     double alpha_max = config["control_limits"]["alpha_max"].as<double>();
 
-    w_x_ = config["weights"]["x"].as<double>();
-    w_y_ = config["weights"]["y"].as<double>();
-    w_phi_ = config["weights"]["phi"].as<double>();
-    double w_vref = config["weights"]["v_ref"].as<double>();
-    double w_obs = config["weights"]["obs"].as<double>();
-    double sigma = config["sigma"].as<double>();
+    // 读取跟踪权重
+    double w_lat = config["weights"]["lateral"].as<double>();  // 横向误差权重
+    double w_yaw = config["weights"]["yaw"].as<double>();  // 航向角误差权重
+    double w_v = config["weights"]["velocity"].as<double>();  // 速度跟踪权重
+    double w_lon = config["weights"]["longitudinal"].as<double>();  // 纵向误差权重
     int lookahead = config["lookahead"].as<int>();
 
     // 当前位姿提取
@@ -104,8 +68,8 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
     x0(2) = yaw;
 
     // ---------------- 加速模式（Rush）控制 ---------------- //
-    if (msg_process_node_->rush_sign) rush_sign = true;
-    if (rush_sign) {
+    if (msg_process_node_->rush_sign) {
+        std::cout << "rush" << std::endl;
         Eigen::Vector3d goal = control_points.col(control_points.cols() - 1);
         Eigen::Vector4d goal_odom;
         goal_odom << goal(0), goal(1), 0.0, 1.0;
@@ -118,13 +82,28 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
 
         double k_v = config["rush"]["k_v"].as<double>();
         double k_w = config["rush"]["k_w"].as<double>();
-        double v_cmd = clamp(k_v * dx_body, v_min_, v_max_);
-        double omega_cmd = clamp(k_w * std::atan2(dy_body, dx_body), omega_min_, omega_max_);
+        double v_cmd = k_v * dx_body;
+        double omega_cmd = k_w * std::atan2(dy_body, dx_body);
 
         geometry_msgs::Twist twist_cmd;
         twist_cmd.linear.x = v_cmd;
         twist_cmd.angular.z = omega_cmd;
         twist_cmd_pub_.publish(twist_cmd);
+        return;
+    }
+
+    static ros::Time emergency_brake_expire_time_ = ros::Time::now();
+    geometry_msgs::Twist twist_cmd;
+
+    if (control_points.cols() == 0) {
+        emergency_brake_expire_time_ = ros::Time::now() + ros::Duration(config["emergency_brake_duration"].as<double>());
+    }
+
+    if (ros::Time::now() <= emergency_brake_expire_time_) {
+        twist_cmd.linear.x = 0.0;
+        twist_cmd.angular.z = 0.0;
+        twist_cmd_pub_.publish(twist_cmd);
+        std::cout << "stop" << std::endl;
         return;
     }
 
@@ -141,40 +120,88 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
         }
     }
 
-    // ------------------- 曲率感知预测步长调整 ------------------- //
-    double alpha = config["alpha"].as<double>();
-    int offset = config["offset"].as<int>();
-    int Np_max = config["Np"].as<int>();
-    int Np_min = config["Np_min"].as<int>();
-    int window_size = config["window_size"].as<int>();
-
-    int end_idx = std::min(nearest_idx + window_size, (int)control_points.cols() - 1);
-    double curvature_sum = 0.0, max_curvature = 0.0;
-    int curvature_count = 0;
-
-    for (int i = nearest_idx + 1; i <= end_idx; ++i) {
-        double phi1 = control_points(2, i);
-        double phi0 = control_points(2, i - 1);
-        double dphi = std::atan2(std::sin(phi1 - phi0), std::cos(phi1 - phi0));
-        double abs_dphi = std::abs(dphi);
-        curvature_sum += abs_dphi;
-        max_curvature = std::max(max_curvature, abs_dphi);
-        curvature_count++;
+    // ---------------- 计算横向误差和航向角误差 ---------------- //
+    double lateral_error = 0.0;
+    double heading_error = 0.0;
+    if (nearest_idx < control_points.cols() - 1) {
+        // 计算轨迹线段的方向向量
+        Eigen::Vector2d p1 = control_points.block<2,1>(0, nearest_idx);
+        Eigen::Vector2d p2 = control_points.block<2,1>(0, nearest_idx + 1);
+        Eigen::Vector2d path_vector = p2 - p1;
+        
+        if (path_vector.norm() > 1e-6) {
+            Eigen::Vector2d unit_path = path_vector.normalized();
+            Eigen::Vector2d normal(-unit_path(1), unit_path(0));  // 法向量
+            
+            // 横向误差（车辆到轨迹线段的垂直距离）
+            lateral_error = (current_xy - p1).dot(normal);
+            
+            // 计算轨迹的航向角
+            double path_heading = std::atan2(unit_path(1), unit_path(0));
+            
+            // 航向角误差
+            heading_error = std::atan2(std::sin(x0(2) - path_heading), 
+                                      std::cos(x0(2) - path_heading));
+        }
     }
-
-    double avg_curvature = (curvature_count > 0) ? (curvature_sum / curvature_count) : 0.0;
-    double hybrid_curvature = 0.8 * avg_curvature + 0.2 * max_curvature;
-
+    
+    // ---------------- 计算曲率和曲率半径 ---------------- //
+    int curvature_window = config["speed_control"]["curvature_window"].as<int>();
+    std::vector<double> curvatures;
+    
+    for (int i = std::max(1, nearest_idx - curvature_window/2); 
+         i < std::min((int)control_points.cols() - 1, nearest_idx + curvature_window/2); 
+         ++i) {
+        
+        // 使用三点法计算曲率
+        if (i > 0 && i < control_points.cols() - 1) {
+            Eigen::Vector2d p0 = control_points.block<2,1>(0, i-1);
+            Eigen::Vector2d p1 = control_points.block<2,1>(0, i);
+            Eigen::Vector2d p2 = control_points.block<2,1>(0, i+1);
+            
+            // 计算三点之间的距离
+            double a = (p0 - p1).norm();
+            double b = (p1 - p2).norm();
+            double c = (p2 - p0).norm();
+            
+            // 计算半周长
+            double s = (a + b + c) / 2.0;
+            
+            // 计算三角形面积
+            double area = std::sqrt(s * (s - a) * (s - b) * (s - c));
+            
+            // 计算曲率（曲率 = 4 * 面积 / (a * b * c)）
+            if (a > 1e-6 && b > 1e-6 && c > 1e-6) {
+                double curvature = 4.0 * area / (a * b * c);
+                curvatures.push_back(curvature);
+            }
+        }
+    }
+    
+    // 计算平均曲率
+    double avg_curvature = 0.0;
+    if (!curvatures.empty()) {
+        avg_curvature = std::accumulate(curvatures.begin(), curvatures.end(), 0.0) / curvatures.size();
+    }
+    
+    // 计算曲率半径（避免除零）
+    double curvature_radius = (avg_curvature > 1e-6) ? (1.0 / avg_curvature) : 1000.0;
+    
+    // ------------------- 预测步长调整 ------------------- //
+    int Np_max = config["Np_max"].as<int>();
+    int Np_min = config["Np_min"].as<int>();
+    
+    // 曲率越大，预测步长越小
     double curvature_sensitivity = config["curvature_sensitivity"].as<double>();
-    double curvature_factor = clamp(hybrid_curvature * curvature_sensitivity, 0.0, 1.0);
-    Np = static_cast<int>(Np_max * (1.0 - curvature_factor) + Np_min * curvature_factor);
+    double normalized_curvature = std::min(1.0, avg_curvature * curvature_sensitivity);
+    Np = static_cast<int>(Np_max * (1.0 - normalized_curvature) + Np_min * normalized_curvature);
     Np = clamp(Np, Np_min, Np_max);
 
     // ------------------- 截取预测与控制点 ------------------- //
     int N_start = std::min(nearest_idx + lookahead, (int)control_points.cols() - 1);
     Np = std::min(Np, (int)control_points.cols() - N_start);
     Nc = std::min(config["Nc"].as<int>(), Np);
-
+    
     // ------------------- 状态空间离散模型 ------------------- //
     Eigen::MatrixXd A = Eigen::MatrixXd::Identity(3, 3);
     double phi0 = x0(2);
@@ -192,76 +219,116 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
         }
     }
 
-    // ------------------- 构造参考轨迹（包含路径推开） ------------------- //
+    // ------------------- 构造参考轨迹 ------------------- //
     Eigen::VectorXd ref(3 * Np);
-    double origin_x = msg_process_node_->grid_map.info.origin.position.x;
-    double origin_y = msg_process_node_->grid_map.info.origin.position.y;
-    double resolution = msg_process_node_->grid_map.info.resolution;
-
-    double distance_threshold = config["distance_threshold"].as<double>();
-    double push_strength = config["push_strength"].as<double>();
-
-    for (int i = 0; i < Np; ++i) {
-        Eigen::Vector3d pt = control_points.col(N_start + i);
-        Eigen::Vector2d pos_world(pt.x(), pt.y());
-        int x = static_cast<int>((pos_world.x() - origin_x) / resolution);
-        int y = static_cast<int>((pos_world.y() - origin_y) / resolution);
-
-        if (x >= 1 && x < dist_map.cols - 1 && y >= 1 && y < dist_map.rows - 1) {
-            float dist = dist_map.at<float>(y, x);
-            if (dist < distance_threshold) {
-                float dx = (dist_map.at<float>(y, x + 1) - dist_map.at<float>(y, x - 1)) / (2 * resolution);
-                float dy = (dist_map.at<float>(y + 1, x) - dist_map.at<float>(y - 1, x)) / (2 * resolution);
-                Eigen::Vector2d grad(dx, dy);
-                if (grad.norm() > 1e-3) {
-                    grad.normalize();
-                    pos_world += push_strength * grad;
-                }
+    for (int i = 0; i < Np; i++) {
+        ref.segment<3>(3 * i) = control_points.col(N_start + i);
+    }
+    
+    // ------------------- 构造参考速度（基于曲率） ------------------- //
+    Eigen::VectorXd v_ref = Eigen::VectorXd::Zero(Nc);
+    double alpha = config["speed_control"]["alpha"].as<double>();  // 曲率对速度的影响因子
+    double min_curvature_radius = config["speed_control"]["min_radius"].as<double>();  // 最小曲率半径
+    
+    for (int i = 0; i < Nc; ++i) {
+        // 计算当前位置的曲率
+        int idx = N_start + i;
+        double local_curvature_radius = curvature_radius;
+        
+        // 如果有必要，可以为每个预测点计算单独的曲率
+        if (idx > 0 && idx < control_points.cols() - 1) {
+            Eigen::Vector2d p0 = control_points.block<2,1>(0, idx-1);
+            Eigen::Vector2d p1 = control_points.block<2,1>(0, idx);
+            Eigen::Vector2d p2 = control_points.block<2,1>(0, idx+1);
+            
+            double a = (p0 - p1).norm();
+            double b = (p1 - p2).norm();
+            double c = (p2 - p0).norm();
+            double s = (a + b + c) / 2.0;
+            double area = std::sqrt(s * (s - a) * (s - b) * (s - c));
+            
+            if (a > 1e-6 && b > 1e-6 && c > 1e-6) {
+                double local_curvature = 4.0 * area / (a * b * c);
+                local_curvature_radius = (local_curvature > 1e-6) ? (1.0 / local_curvature) : 1000.0;
             }
         }
-        ref.segment<3>(3 * i) << pos_world.x(), pos_world.y(), pt.z();
-    }
-
-    // ------------------- 代价矩阵构建（跟踪误差） ------------------- //
-    Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(3 * Np, 3 * Np);
-    for (int i = 0; i < Np; ++i) {
-        Q.block<3, 3>(3 * i, 3 * i) = Eigen::DiagonalMatrix<double, 3>(w_x_, w_y_, w_phi_);
-    }
-
-    // ------------------- 构造参考速度 v_ref（用于调速） ------------------- //
-    Eigen::VectorXd v_ref = Eigen::VectorXd::Zero(Nc);
-    for (int i = 0; i < Nc; ++i) {
-        int idx0 = N_start + i;
-        int idx_back = std::max(idx0 - offset, 0);
-        int idx_forward = std::min(idx0 + offset, (int)control_points.cols() - 1);
-        double phi_back = control_points(2, idx_back);
-        double phi_forward = control_points(2, idx_forward);
-        double dphi = std::atan2(std::sin(phi_forward - phi_back), std::cos(phi_forward - phi_back));
-        double v = v_max_ * std::exp(-alpha * std::abs(dphi));
+        
+        // 限制最小曲率半径，避免速度过低
+        local_curvature_radius = std::max(local_curvature_radius, min_curvature_radius);
+        
+        // 基于曲率半径映射到速度：曲率半径越小，速度越低
+        double v = v_max_ * (1.0 - std::exp(-alpha * local_curvature_radius));
         v_ref(i) = clamp(v, v_min_, v_max_);
     }
 
-    // ------------------- 优化目标函数构建 ------------------- //
-    Eigen::MatrixXd M = Eigen::MatrixXd::Zero(Nc, 2 * Nc);
-    for (int i = 0; i < Nc; ++i) {
-        M(i, 2 * i) = 1;
+    // ------------------- 构建跟踪误差成本矩阵 ------------------- //
+    Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(3 * Np, 3 * Np);
+    
+    // 根据横向误差和航向角误差调整权重
+    double lat_scale = 1.0;
+    double yaw_scale = 1.0;
+    double lateral_threshold = config["lateral_control"]["error_threshold"].as<double>();
+    
+    if (std::abs(lateral_error) > lateral_threshold) {
+        double gain = config["lateral_control"]["error_gain"].as<double>();
+        lat_scale = 1.0 + gain * std::abs(lateral_error);
     }
-    Eigen::MatrixXd W_vref = Eigen::MatrixXd::Identity(Nc, Nc) * w_vref;
-
-    Eigen::MatrixXd H_dense = B_bar.transpose() * Q * B_bar + M.transpose() * W_vref * M;
-    Eigen::VectorXd f = B_bar.transpose() * Q * (A_bar * x0 - ref) - M.transpose() * W_vref * v_ref;
-
-    // ------------------- 融合障碍物惩罚代价（soft） ------------------- //
+    
+    if (std::abs(heading_error) > config["lateral_control"]["heading_threshold"].as<double>()) {
+        double gain = config["lateral_control"]["heading_gain"].as<double>();
+        yaw_scale = 1.0 + gain * std::abs(heading_error);
+    }
+    
+    // 设置跟踪误差代价矩阵
     for (int i = 0; i < Np; ++i) {
-        Eigen::Vector3d x_est = A_bar.block(3 * i, 0, 3, 3) * x0;
-        Eigen::Vector2d pos_xy(x_est(0), x_est(1));
-        double obs_cost = computeObstacleCost(pos_xy, msg_process_node_->grid_map, dist_map, w_obs, sigma);
-        for (int j = 0; j < Nc; ++j) {
-            if (j <= i) {
-                f(2 * j) += obs_cost; // 加在v控制项上
-            }
-        }
+        // 使用横向误差计算修正
+        double ref_yaw = ref(3 * i + 2);  // 参考轨迹在该点的朝向
+        
+        // 构建旋转矩阵，将世界坐标系误差转换为轨迹坐标系误差
+        double cos_yaw = cos(ref_yaw);
+        double sin_yaw = sin(ref_yaw);
+        
+        // 在跟踪点的局部坐标系下设置权重
+        // x'表示沿轨迹方向的纵向分量，y'表示垂直于轨迹的横向分量
+        double wx = w_lon;  // 纵向权重（可以很小）
+        double wy = w_lat * lat_scale;  // 横向权重
+        double wphi = w_yaw * yaw_scale;  // 航向权重
+        
+        // 构建这一点的旋转权重矩阵
+        Eigen::Matrix2d Rot;
+        Rot << cos_yaw, sin_yaw, 
+              -sin_yaw, cos_yaw;
+        
+        Eigen::Matrix2d W;
+        W << wx, 0,
+             0, wy;
+        
+        // 计算旋转后的权重矩阵
+        Eigen::Matrix2d W_rot = Rot.transpose() * W * Rot;
+        
+        // 应用到状态权重矩阵
+        Q(3*i, 3*i) = W_rot(0,0);
+        Q(3*i, 3*i+1) = W_rot(0,1);
+        Q(3*i+1, 3*i) = W_rot(1,0);
+        Q(3*i+1, 3*i+1) = W_rot(1,1);
+        Q(3*i+2, 3*i+2) = wphi;  // 偏航角权重
     }
+
+    // ------------------- 构建速度跟踪成本矩阵 ------------------- //
+    Eigen::MatrixXd R = Eigen::MatrixXd::Zero(2 * Nc, 2 * Nc);
+    for (int i = 0; i < Nc; ++i) {
+        R(2*i, 2*i) = w_v;  // 线速度v的跟踪权重
+    }
+    
+    // 构建速度参考向量
+    Eigen::VectorXd u_ref = Eigen::VectorXd::Zero(2 * Nc);
+    for (int i = 0; i < Nc; ++i) {
+        u_ref(2*i) = v_ref(i);  // 线速度参考
+    }
+
+    // ------------------- 优化目标函数构建 ------------------- //
+    Eigen::MatrixXd H_dense = B_bar.transpose() * Q * B_bar + R;
+    Eigen::VectorXd f = B_bar.transpose() * Q * (A_bar * x0 - ref) - R * u_ref;
 
     // ------------------- 控制输入约束构建 ------------------- //
     int n_variables = 2 * Nc;
@@ -392,40 +459,31 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
     predict_path_pub_.publish(predict_path);
 
     // ------------------- 参考轨迹发布 ------------------- //
-    visualization_msgs::MarkerArray marker_array;
-    int ID = 0;
+    nav_msgs::Path path_msg;
+    path_msg.header.frame_id = "odom";
+    path_msg.header.stamp = ros::Time::now();
+
     for (int i = 0; i < Np; ++i) {
-        visualization_msgs::Marker point_marker;
-        point_marker.header.frame_id = "odom";
-        point_marker.header.stamp = ros::Time::now();
-        point_marker.ns = "ref_trajectory";
-        point_marker.type = visualization_msgs::Marker::SPHERE;
-        point_marker.action = visualization_msgs::Marker::ADD;
+        geometry_msgs::PoseStamped pose;
+        pose.header = path_msg.header;
+        pose.pose.position.x = ref(3 * i + 0);
+        pose.pose.position.y = ref(3 * i + 1);
+        pose.pose.position.z = 0.2;
 
-        // 为每个点设置唯一的ID
-        point_marker.id = ID++;  // 为每个点分配唯一的ID
+        double yaw = ref(3 * i + 2);
+        tf::Quaternion q;
+        q.setRPY(0, 0, yaw);
+        pose.pose.orientation.x = q.x();
+        pose.pose.orientation.y = q.y();
+        pose.pose.orientation.z = q.z();
+        pose.pose.orientation.w = q.w();
 
-        // 设置Marker的比例
-        point_marker.scale.x = 0.05;  // 点的大小
-        point_marker.scale.y = 0.05;
-        point_marker.scale.z = 0.05;
-
-        // 设置Marker的颜色
-        point_marker.color.r = 0.0;  // 红色分量
-        point_marker.color.g = 0.0;  // 绿色分量
-        point_marker.color.b = 1.0;  // 蓝色分量
-        point_marker.color.a = 1.0;  // 透明度（alpha）
-
-        // 设置点的坐标
-        point_marker.pose.position.x = ref(3 * i + 0);
-        point_marker.pose.position.y = ref(3 * i + 1);
-        point_marker.pose.position.z = 0.3;
-        point_marker.pose.orientation.x = 0.0;
-        point_marker.pose.orientation.y = 0.0;
-        point_marker.pose.orientation.z = 0.0;
-        point_marker.pose.orientation.w = 1.0;
-        // 将Marker添加到MarkerArray
-        marker_array.markers.push_back(point_marker);
+        path_msg.poses.push_back(pose);
     }
-    marker_pub_.publish(marker_array);
+
+    ref_path_pub_.publish(path_msg);
+    
+    // 调试输出
+    ROS_INFO("Lateral error: %.3f m, Heading error: %.3f rad, Curvature radius: %.2f m, Ref velocity: %.2f m/s", 
+             lateral_error, heading_error, curvature_radius, v_ref(0));
 }

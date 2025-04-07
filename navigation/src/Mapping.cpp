@@ -32,6 +32,13 @@ MappingNode::MappingNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node) :
 
     mapOriginChanged = false;
     ready = false;
+}
+
+void MappingNode::scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg)
+{
+    if (!goal_state_.have_goal_)  {
+        return;
+    }
     Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
     Eigen::Vector3d Base_To_Odom_Translation = Base_To_Odom_Matrix.Translation_Read();
     double roll, pitch, yaw;
@@ -40,13 +47,7 @@ MappingNode::MappingNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node) :
     vehicle_pose.x = Base_To_Odom_Translation.x();
     vehicle_pose.y = Base_To_Odom_Translation.y();
     vehicle_pose.yaw = yaw;
-}
-
-void MappingNode::scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg)
-{
-    if (!goal_state_.have_goal_)  {
-        return;
-    }
+    
     Matrix Laser_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "front_laser");     
     // 获取配置参数
     config = YAML::LoadFile(config_yaml_path);
@@ -91,8 +92,8 @@ void MappingNode::scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg)
         historical_obstacle_points_.emplace_back(obs_xy, now);
     }
     
-    // === 2. 移除过期障碍点（如30秒未被再次看到）===
-    ros::Duration decay(10.0);
+    // === 2. 移除过期障碍点（如60秒未被再次看到）===
+    ros::Duration decay(60.0);
     auto it = historical_obstacle_points_.begin();
     while (it != historical_obstacle_points_.end()) {
         if ((now - it->second) > decay) {

@@ -1,46 +1,32 @@
 rush:
   k_v: 10
   k_w: 5
-  
-skip_front_points: 4  # 跳过前方点数
+skip_front_points: 5 # 跳过前方点数
 
-# 控制参数
-T: 0.03                # 控制周期 (秒)
-Np_max: 30                 # 预测步长
-Np_min: 10 
-Nc: 30                # 控制步长
-lookahead: 0
+# 基本控制参数
+T: 0.03 # 控制周期 (秒)
+emergency_brake_duration: 0.1 # 急停持续时间 (秒)
+
+# 纯跟踪控制器参数
+pure_pursuit:
+  look_ahead_distance: 1.0 # 基础前向距离 (米)
+  min_look_ahead: 0.5 # 最小前向距离 (米)
+  max_look_ahead: 2.5 # 最大前向距离 (米)
+  k_look_ahead: 0.4 # 速度对前向距离的影响因子 (前向距离 = min_dist + k * 速度)
+
+# 速度控制参数（基于曲率）
+speed_control:
+  alpha: 20.0 # 曲率对速度的影响因子，越大弯道减速越明显
+  curvature_window: 5 # 曲率计算窗口大小
+  min_radius: 0.1 # 最小曲率半径(米)，用于限制最低速度
 
 # 控制限制
 control_limits:
-  v_min: -1.5          # 最小线速度 (m/s)
-  v_max: 1.5            # 最大线速度 (m/s)
-  omega_min: -1.5      # 最小角速度 (rad/s)
-  omega_max: 1.5     # 最大角速度 (rad/s)
-  a_min: -4         # 最小加速度 (m/s^2)
-  a_max: 2          # 最大加速度 (m/s^2)
-  alpha_min: -4.0    # 最小角加速度 (rad/s^2)
-  alpha_max: 4.0     # 最大角加速度 (rad/s^2)
+  v_min: 0.1 # 最小线速度 (m/s), 通常设为正数以保持前进
+  v_max: 1.1 # 最大线速度 (m/s)
+  omega_min: -2.0 # 最小角速度 (rad/s)
+  omega_max: 2.0 # 最大角速度 (rad/s)
+  max_deceleration: 2  # 最大减速度 (m/s²)
 
-#曲率控制 Np大小
-curvature_sensitivity: 0.0   # 曲率对预测步长的影响程度，越大越敏感（建议 30 ~ 80）
-window_size: 13        # 预测窗口大小
-
-
-# MPC权重参数
-weights:
-  x: 1000.0              # x位置跟踪权重
-  y: 1000.0              # y位置跟踪权重
-  phi: 100.0             # 方向角跟踪权重
-  v_ref: 100.0        # 弯道速度
-
-
-control: true
-
-
-
-
-# // 系统动力学方程
-# f << dot(x) == v * cos(phi);
-# f << dot(y) == v * sin(phi);
-# f << dot(phi) == omega;
+# 是否执行控制命令
+control: false

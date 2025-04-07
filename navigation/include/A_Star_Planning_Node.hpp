@@ -52,7 +52,7 @@ typedef struct {
 class AStarPlanningNode {
 public:
     // Constructor
-    AStarPlanningNode(std::shared_ptr<MappingNode> mapping_node);
+    AStarPlanningNode(std::shared_ptr<MappingNode> mapping_node, std::shared_ptr<TFSubscriberNode> tf_subscriber_node);
 private:
     // Callback functions
     void TimerCallback(const ros::TimerEvent& event);
@@ -79,6 +79,7 @@ private:
     void publishLastAStarPath(std::vector<A_Star_Path_> & path, bool rush_sign, bool emergency_braking);
     // TF listener node
     std::shared_ptr<MappingNode> mapping_node_;
+    std::shared_ptr<TFSubscriberNode> tf_subscriber_node_;
 
     // Publishers
     ros::Publisher a_star_path_pub_;       // Publish A* path
