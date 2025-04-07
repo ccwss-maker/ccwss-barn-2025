@@ -161,11 +161,10 @@ void MsgProcessNode::FirstOptiTrajectoryCallback(const initial_optimized_msgs::I
 {
 
     rush_sign = first_opti_path->rush_sign;
-    // if(first_opti_path->emergency_braking_sign)
-    // {
-    //     control_points = Eigen::MatrixXd::Zero(3, 0);
-    //     return;
-    // }
+    if(rush_sign) {
+        ROS_INFO("Rush mode activated");
+        return;
+    }
     if (first_opti_path->position.size() < 3) {
         ROS_ERROR("Insufficient position data points (need at least 3)");
         return;

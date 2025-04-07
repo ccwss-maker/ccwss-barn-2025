@@ -8,111 +8,94 @@
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
 #include "TFSubscriberNode.hpp"
+#include "DenseGridMap.hpp"
 #include "yaml-cpp/yaml.h"
-
-#include <visualization_msgs/MarkerArray.h>
 #include <std_msgs/ColorRGBA.h>
-
 #include <actionlib/server/simple_action_server.h>
 #include <move_base_msgs/MoveBaseAction.h>
-
 #include <sensor_msgs/LaserScan.h>
 #include <sensor_msgs/Imu.h>
 
 class MappingNode {
 public:
-    // Constructor
+    // 构造函数：接收TF订阅节点的共享指针
     MappingNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node);
-
-    std::vector<std::vector<int>> generateInflatedGridMap(double xmin, double xmax, double ymin, double ymax,
-                                                            double resolution,
-                                                            double car_length, double car_width,
-                                                            double safety_margin);  
-
-    bool rush_sign;
-    typedef struct 
-    {
-        bool have_goal_;
-        geometry_msgs::PoseStamped current_goal_;
-    }GoalState;
-    GoalState goal_state_;
-    bool mapOriginChanged;
-
-    typedef struct 
-    {
-        double x;
-        double y;
-        double yaw;
-    } VehiclePose;
-
-    VehiclePose vehicle_pose;
-
-
-    typedef struct 
-    {
-        double xmin;
-        double xmax;
-        double ymin;
-        double ymax;
-    }MapSize;
-    MapSize map_size;
-
-    std::vector<std::vector<int>> origin_map;
-    std::vector<std::vector<int>> relaxed_grid_map;
-    std::vector<std::vector<int>> grid_map;
-    double grid_resolution_meters;
-    double safety_hor;
-    double car_length;
-    double car_width;
-
-    bool ready;
     
+    // 是否需要快速移动
+    bool rush_sign;
+
+    // 目标状态结构体
+    struct GoalState {
+        bool have_goal_ = false;
+        geometry_msgs::PoseStamped current_goal_;
+    } goal_state_;
+
+    // 车辆位姿结构体
+    struct VehiclePose {
+        double x = 0;
+        double y = 0;
+        double yaw = 0;
+    } vehicle_pose;
+
+    // 地图大小结构体
+    struct MapSize {
+        double xmin = 0;
+        double xmax = 0;
+        double ymin = 0;
+        double ymax = 0;
+    } map_size;
+
+    // 地图对象
+    DenseGridMap origin_map;        // 原始障碍物地图
+    DenseGridMap relaxed_grid_map;  // 松弛膨胀地图
+    DenseGridMap grid_map;          // 安全膨胀地图
+
+    // 地图参数
+    double grid_resolution_meters = 0.1;
+    double safety_hor = 0.0;
+    double car_length = 0.0;
+    double car_width = 0.0;
+
+    // 地图是否准备就绪
+    bool ready = false;
+
 private:
-    // Callback functions
+    // 目标回调函数
     void goalCallback(const geometry_msgs::PoseStamped::ConstPtr& goal_msg);
     void executeGoalCallback(const move_base_msgs::MoveBaseGoalConstPtr& goal);
+    
+    // 激光扫描回调函数
     void scanCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg);
+    
+    // 发布目标标记
     void publishGoalMarker();
-    // Visualization function
-    void publishGridMapRviz(const std::vector<std::vector<int>>& grid_map,
-                            double x_min, double y_min,
-                            double grid_resolution_meters,
-                            const std::pair<int, int>& start,
-                            const std::pair<int, int>& goal,
-                            ros::Publisher& grid_pub_);
-    // Planning functions
-    
-    // Publish goal marker
-    
-    // TF listener node
+
+    // TF订阅节点
     std::shared_ptr<TFSubscriberNode> tf_subscriber_node_;
 
-    // Publishers
+    // ROS发布器
     ros::Publisher goal_marker_pub_;
-    ros::Publisher map_origin_pub ;      // Publish A* map 
-    ros::Publisher map_relaxed_pub ;      // Publish A* map 
-    ros::Publisher map_safety_pub ;      // Publish A* map 
-    // Subscribers
+    ros::Publisher map_origin_pub;
+    ros::Publisher map_relaxed_pub;
+    ros::Publisher map_safety_pub;
+
+    // ROS订阅器
     ros::Subscriber scan_sub_;
     ros::Subscriber goal_sub_;
+    
+    // 动作服务器
     std::unique_ptr<actionlib::SimpleActionServer<move_base_msgs::MoveBaseAction>> action_server_;
-    
-    // Data storage
-    Matrix Map_To_Odom_Matrix;    // Map -> Odom 变换矩阵
-    
-    // Configuration path
+
+    // 变换矩阵
+    Matrix Map_To_Odom_Matrix;
+
+    // 配置文件路径
     std::string config_yaml_path;
     YAML::Node config;
 
-
-    Eigen::MatrixXd obstacle_points_matrix_; // Obstacle points in base_link frame
-    std::vector<std::pair<Eigen::Vector2d, ros::Time>> historical_obstacle_points_;
-
-
-    double last_path_origin_xmin_;
-    double last_path_origin_ymin_;
-
-
+    // 上一个路径原点
+    double last_path_origin_xmin_ = 0;
+    double last_path_origin_ymin_ = 0;
 };
 
 #endif // MAPPING_HPP

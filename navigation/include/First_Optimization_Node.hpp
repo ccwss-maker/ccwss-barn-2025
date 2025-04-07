@@ -46,7 +46,6 @@ private:
     void backwardGradT(const Eigen::VectorXd &tau, const Eigen::VectorXd &gradT, EIGENVEC &gradTau);
     template <typename EIGENVEC>
     void backwardGradP(const Eigen::VectorXd &xi, const Eigen::Matrix3Xd &gradP, EIGENVEC &gradXi);
-    void Emergency_Brake_Publish();
     // Publishers
     ros::Publisher First_Optimized_Trajectory_Publisher_;
     ros::Publisher First_Opimization_Marker_Publisher_;

@@ -1,5 +1,5 @@
-#ifndef MPC_HPP
-#define MPC_HPP
+#ifndef PURE_PURSUIT_HPP
+#define PURE_PURSUIT_HPP
 
 #include "ros/ros.h"
 #include "MSG_Process.hpp"
@@ -13,16 +13,11 @@
 #include <vector>
 #include <algorithm>
 
-class MPCNode {
+class PurePursuitNode {
 public:
-    MPCNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node, std::shared_ptr<MsgProcessNode> msg_process_node);
+    PurePursuitNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node, std::shared_ptr<MsgProcessNode> msg_process_node);
 private:
-    void TimerCallback(const ros::TimerEvent& event);   
-    double computeObstacleCost(const Eigen::Vector2d& pos_world,
-        const nav_msgs::OccupancyGrid& grid_map,
-        const cv::Mat& dist_map,
-        double w_obs,
-        double sigma);
+    void TimerCallback(const ros::TimerEvent& event);
     // 共享指针
     std::shared_ptr<TFSubscriberNode> tf_subscriber_node_;
     std::shared_ptr<MsgProcessNode> msg_process_node_;  // control_node共享指针

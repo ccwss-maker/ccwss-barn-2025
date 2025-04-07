@@ -1,4 +1,4 @@
-#include "MPC.hpp"
+#include "Pure_Pursuit.hpp"
 #include "math.h"
 #include <OsqpEigen/OsqpEigen.h>
 #include <algorithm>
@@ -10,7 +10,7 @@ T clamp(T val, T min_val, T max_val) {
 }
 
 // -------------------- 构造函数 -------------------- //
-MPCNode::MPCNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node, std::shared_ptr<MsgProcessNode> msg_process_node) :
+PurePursuitNode::PurePursuitNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node, std::shared_ptr<MsgProcessNode> msg_process_node) :
     tf_subscriber_node_(tf_subscriber_node), msg_process_node_(msg_process_node)
 {
     ros::NodeHandle nh;
@@ -19,7 +19,7 @@ MPCNode::MPCNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node, std::shar
     double T = config["T"].as<double>();
 
     // 创建定时器
-    timer_ = nh.createTimer(ros::Duration(T), &MPCNode::TimerCallback, this);
+    timer_ = nh.createTimer(ros::Duration(T), &PurePursuitNode::TimerCallback, this);
 
     // 发布器初始化
     twist_cmd_pub_ = nh.advertise<geometry_msgs::Twist>("/twist_marker_server/cmd_vel", 10);
@@ -31,7 +31,7 @@ MPCNode::MPCNode(std::shared_ptr<TFSubscriberNode> tf_subscriber_node, std::shar
 }
 
 // -------------------- MPC 核心控制回调函数 -------------------- //
-void MPCNode::TimerCallback(const ros::TimerEvent& event)
+void PurePursuitNode::TimerCallback(const ros::TimerEvent& event)
 {   
     // ---------------- 获取TF与基础配置 ---------------- //
     Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
@@ -343,7 +343,7 @@ void MPCNode::TimerCallback(const ros::TimerEvent& event)
     }
     ref_path_pub_.publish(path_msg);
     
-    // 调试输出
-    ROS_INFO("Pure Pursuit | Look ahead: %.2f m, Target idx: %d, Lateral error: %.3f m, Curvature radius: %.2f m, Cmd v: %.2f, Cmd w: %.2f", 
-             look_ahead_distance, target_idx - nearest_idx, lateral_error, curvature_radius, cmd_v, cmd_omega);
+    // // 调试输出
+    // ROS_INFO("Pure Pursuit | Look ahead: %.2f m, Target idx: %d, Lateral error: %.3f m, Curvature radius: %.2f m, Cmd v: %.2f, Cmd w: %.2f", 
+    //          look_ahead_distance, target_idx - nearest_idx, lateral_error, curvature_radius, cmd_v, cmd_omega);
 }

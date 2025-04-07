@@ -12,8 +12,8 @@ From: ros:melodic
     python3 -m venv /venv
     export PATH="/venv/bin:$PATH"
     pip3 install --upgrade pip
-    pip3 install defusedxml rospkg netifaces numpy
-    
+    pip3 install defusedxml rospkg netifaces numpy casadi
+    apt-get install ros-melodic-global-planner
     cd /jackal_ws/src
     git clone https://github.com/jackal/jackal.git --branch melodic-devel
     git clone https://github.com/jackal/jackal_simulator.git --branch melodic-devel

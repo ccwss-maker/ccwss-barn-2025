@@ -1,7 +1,9 @@
 #include "A_Star_Planning_Node.hpp"
 #include <cmath>
+#include <limits>
 
-AStarPlanningNode::AStarPlanningNode(std::shared_ptr<MappingNode> mapping_node, std::shared_ptr<TFSubscriberNode> tf_subscriber_node) : mapping_node_(mapping_node), tf_subscriber_node_(tf_subscriber_node)
+AStarPlanningNode::AStarPlanningNode(std::shared_ptr<MappingNode> mapping_node, std::shared_ptr<TFSubscriberNode> tf_subscriber_node) 
+    : mapping_node_(mapping_node), tf_subscriber_node_(tf_subscriber_node)
 {
     ros::NodeHandle nh;
     
@@ -19,73 +21,59 @@ AStarPlanningNode::AStarPlanningNode(std::shared_ptr<MappingNode> mapping_node, 
 
 void AStarPlanningNode::TimerCallback(const ros::TimerEvent& event)
 {
-    // Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
-    // Eigen::Vector3d Base_To_Odom_Translation = Base_To_Odom_Matrix.Translation_Read();
-    // double roll, pitch, yaw;
-    // tf::Quaternion transform_q = Base_To_Odom_Matrix.Quaternion_Read();
-    // tf::Matrix3x3(transform_q).getRPY(roll, pitch, yaw);
-    // vehicle_pose.x = Base_To_Odom_Translation.x();
-    // vehicle_pose.y = Base_To_Odom_Translation.y();
-    // vehicle_pose.yaw = yaw;
-
     if (!mapping_node_->goal_state_.have_goal_ || !mapping_node_->ready) {
         return;
     }
+    
     config = YAML::LoadFile(config_yaml_path);
-    vehicle_pose = mapping_node_->vehicle_pose;
-    map_size =  mapping_node_->map_size;
+    Matrix Base_To_Odom_Matrix = tf_subscriber_node_->Matrix_Read("odom", "base_link");
+    Eigen::Vector3d Base_To_Odom_Translation = Base_To_Odom_Matrix.Translation_Read();
+    double roll, pitch, yaw;
+    tf::Quaternion transform_q = Base_To_Odom_Matrix.Quaternion_Read();
+    tf::Matrix3x3(transform_q).getRPY(roll, pitch, yaw);
+    vehicle_pose.x = Base_To_Odom_Translation.x();
+    vehicle_pose.y = Base_To_Odom_Translation.y();
+    vehicle_pose.yaw = yaw;
+
+    map_size = mapping_node_->map_size;
     double grid_resolution_meters = mapping_node_->grid_resolution_meters;
-    if (!last_path_.empty() && mapping_node_->mapOriginChanged) {
-        last_path_ = remapPathToNewMapOrigin(
-            last_path_,
-            last_path_origin_xmin_, last_path_origin_ymin_,
-            map_size.xmin, map_size.ymin, grid_resolution_meters);
-    
-        last_path_origin_xmin_ = map_size.xmin;
-        last_path_origin_ymin_ = map_size.ymin;
-    }
-    
+
     // 计算起点和终点的栅格坐标
-    std::pair<int, int> start(
-        static_cast<int>(std::round((vehicle_pose.x - map_size.xmin) / grid_resolution_meters)),
-        static_cast<int>(std::round((vehicle_pose.y - map_size.ymin) / grid_resolution_meters))
+    std::pair<int, int> start = mapping_node_->origin_map.worldToGrid(vehicle_pose.x, vehicle_pose.y);
+    std::pair<int, int> goal = mapping_node_->origin_map.worldToGrid(
+        mapping_node_->goal_state_.current_goal_.pose.position.x,
+        mapping_node_->goal_state_.current_goal_.pose.position.y
     );
     
-    std::pair<int, int> goal(
-        static_cast<int>(std::round((mapping_node_->goal_state_.current_goal_.pose.position.x - map_size.xmin) / grid_resolution_meters)),
-        static_cast<int>(std::round((mapping_node_->goal_state_.current_goal_.pose.position.y - map_size.ymin) / grid_resolution_meters))
-    );
-    
-    // 尝试复用 last_path_：使用“放宽版”地图，只考虑车身本体，无安全冗余
-    bool path_found = false;
-    if (!last_path_.empty() &&
-        !isPathColliding(last_path_, mapping_node_->relaxed_grid_map, map_size.xmin, map_size.ymin, grid_resolution_meters)) {
-        // ROS_INFO("Reusing previous path under relaxed check (safety_hor = 0.0)");
+    // 尝试复用 last_path_：使用"放宽版"地图，只考虑车身本体，无安全冗余
+    if (!last_path_.empty() && 
+        !isPathColliding(last_path_, mapping_node_->relaxed_grid_map) && 
+        findClosestPathDistance(last_path_, vehicle_pose.x, vehicle_pose.y) < config["Reuse_Path_Distance"].as<double>()) {
+        // ROS_INFO("Reusing previous path under relaxed check");
         a_star_path_ = last_path_;
-        path_found = true;
-    } else 
-    {
+    } else {
         double safety_step = 0.02;
         double current_safety = mapping_node_->safety_hor;
         double best_safety = -1.0;
-        path_found = false;
 
         while (current_safety >= 0.0) {
-            auto grid_map = mapping_node_->generateInflatedGridMap(map_size.xmin, map_size.xmax,
-                                                                    map_size.ymin, map_size.ymax,
-                                                                    grid_resolution_meters,
-                                                                    mapping_node_->car_length, mapping_node_->car_width, current_safety);
+            // 创建临时地图用于A*搜索，从原始地图复制
+            DenseGridMap temp_map = mapping_node_->origin_map;
+            
+            // 使用新的boundedInflation接口直接在地图上执行膨胀
+            temp_map.boundedInflation(std::max(mapping_node_->car_length/2.0, mapping_node_->car_width/2.0) + current_safety);
+            
+            // 确保起点和终点可通行
+            temp_map.setCellValue(vehicle_pose.x, vehicle_pose.y, 0);
+            temp_map.setCellValue(mapping_node_->goal_state_.current_goal_.pose.position.x, 
+                                 mapping_node_->goal_state_.current_goal_.pose.position.y, 0);
 
-            grid_map[start.second][start.first] = 0;
-            grid_map[goal.second][goal.first] = 0;
-
-            a_star_path_ = AStarSearch(grid_map, start, goal, grid_resolution_meters);
+            a_star_path_ = AStarSearch(temp_map, start, goal, grid_resolution_meters);
 
             if (!a_star_path_.empty()) {
                 // ROS_INFO("A* succeeded with safety_hor = %.2f", current_safety);
                 best_safety = current_safety;
                 last_path_ = a_star_path_;
-                path_found = true;
                 break;
             } else {
                 // ROS_WARN("A* failed with safety_hor = %.2f, trying smaller", current_safety);
@@ -102,108 +90,51 @@ void AStarPlanningNode::TimerCallback(const ros::TimerEvent& event)
     
     // 检查路径是否为空
     if (last_path_.empty()) {
-        // ROS_WARN("Path planning failed: no valid path found.");
+        ROS_WARN("Path planning failed: no valid path found.");
     } else {
-        publishLastAStarPath(last_path_, mapping_node_->rush_sign, path_found); 
-        publishAStarPathRviz(last_path_, map_size.xmin, map_size.ymin, grid_resolution_meters);
+        publishLastAStarPath(last_path_, mapping_node_->rush_sign); 
+        publishAStarPathRviz(last_path_, grid_resolution_meters);
     }
 }
 
-
-std::vector<A_Star_Path_> AStarPlanningNode::remapPathToNewMapOrigin(
-    const std::vector<A_Star_Path_>& old_path,
-    double old_xmin, double old_ymin,
-    double new_xmin, double new_ymin,
-    double resolution)
+double AStarPlanningNode::findClosestPathDistance(std::vector<A_Star_Path_> path, double vehicle_x, double vehicle_y) 
 {
-    std::vector<A_Star_Path_> new_path;
-
-    if (old_path.empty()) return new_path;
-
-    // === 构造 3x3 坐标变换矩阵 ===
-    Eigen::Matrix3d old_to_world = Eigen::Matrix3d::Identity();
-    old_to_world(0, 0) = resolution;
-    old_to_world(1, 1) = resolution;
-    old_to_world(0, 2) = old_xmin;
-    old_to_world(1, 2) = old_ymin;
-
-    Eigen::Matrix3d world_to_new = Eigen::Matrix3d::Identity();
-    world_to_new(0, 0) = 1.0 / resolution;
-    world_to_new(1, 1) = 1.0 / resolution;
-    world_to_new(0, 2) = -new_xmin / resolution;
-    world_to_new(1, 2) = -new_ymin / resolution;
-
-    Eigen::Matrix3d transform = world_to_new * old_to_world;
-
-    // === 构造旧路径矩阵 ===
-    Eigen::MatrixXd old_mat(3, old_path.size());  // 每列是一个点的齐次坐标
-    for (size_t i = 0; i < old_path.size(); ++i) {
-        old_mat(0, i) = old_path[i].position.x();
-        old_mat(1, i) = old_path[i].position.y();
-        old_mat(2, i) = 1.0;
-    }
-
-    // === 计算新路径矩阵 ===
-    Eigen::MatrixXd new_mat = transform * old_mat;
-
-    // === 构造新路径 ===
-    for (size_t i = 0; i < old_path.size(); ++i) {
-        A_Star_Path_ pt = old_path[i];
-        int new_x = static_cast<int>(std::round(new_mat(0, i)));
-        int new_y = static_cast<int>(std::round(new_mat(1, i)));
-        pt.position = Eigen::Vector2d(new_x, new_y);
-        new_path.push_back(pt);
-    }
-
-    return new_path;
-}
-
-
-
-void AStarPlanningNode::publishLastAStarPath(std::vector<A_Star_Path_> & path, bool rush_sign, bool emergency_braking) {
     if (path.empty()) {
-        ROS_WARN("No path to publish.");
-        return;
+        return -1.0;
     }
 
-    astar_msgs::AStarPathArray path_array;
-    path_array.header.stamp = ros::Time::now();
-    path_array.header.frame_id = "odom";
+    double min_distance = std::numeric_limits<double>::max();
 
-    for (const auto& pt : path) {
-        astar_msgs::AStarPath path_msg;
-
-        // 将 grid 坐标转换为实际世界坐标（meter）
-        path_msg.position.x = map_size.xmin + pt.position.x() * mapping_node_->grid_resolution_meters;
-        path_msg.position.y = map_size.ymin + pt.position.y() * mapping_node_->grid_resolution_meters;
-        // path_msg.position.z = pt.yaw;
-        path_msg.position.z = 0.0;
-        path_array.paths.push_back(path_msg);
+    // 遍历路径中的所有点
+    for (size_t i = 0; i < path.size(); ++i) {
+        // 将路径点的栅格坐标转换为世界坐标
+        std::pair<double, double> world_coords = mapping_node_->origin_map.gridToWorld(
+            path[i].position.x(), path[i].position.y());
+        
+        // 计算距离
+        double dx = world_coords.first - vehicle_x;
+        double dy = world_coords.second - vehicle_y;
+        double distance = std::hypot(dx, dy);
+        
+        // 更新最近距离
+        if (distance < min_distance) {
+            min_distance = distance;
+        }
     }
-    path_array.rush_sign = rush_sign;
-    path_array.emergency_braking_sign = emergency_braking;
-    a_star_path_pub_.publish(path_array);
+
+    return min_distance;
 }
 
 bool AStarPlanningNode::isPathColliding(
     const std::vector<A_Star_Path_>& path,
-    const std::vector<std::vector<int>>& grid_map,
-    double xmin, double ymin, double resolution)
+    DenseGridMap& grid_map)
 {
-    int height = grid_map.size();
-    int width = grid_map[0].size();
-
     for (const auto& point : path) {
-        int grid_x = static_cast<int>(point.position.x());
-        int grid_y = static_cast<int>(point.position.y());
-
-        // 越界视为碰撞
-        if (grid_x < 0 || grid_x >= width || grid_y < 0 || grid_y >= height) {
-            return true;
-        }
-
-        // 栅格值为1表示障碍，认为路径发生碰撞
-        if (grid_map[grid_y][grid_x] != 0) {
+        auto world_coords = grid_map.gridToWorld(point.position.x(), point.position.y());
+        // 检查该点在地图中的值
+        int grid_value = grid_map.getCellValue(world_coords.first, world_coords.second);
+        // 栅格值为非0表示障碍，认为路径发生碰撞
+        if (grid_value != 0) {
             return true;
         }
     }
@@ -211,32 +142,23 @@ bool AStarPlanningNode::isPathColliding(
     return false;
 }
 
-std::vector<A_Star_Path_> AStarPlanningNode::AStarSearch(const std::vector<std::vector<int>>& grid_map, 
-                                                         const std::pair<int, int>& start, 
-                                                         const std::pair<int, int>& goal, 
-                                                         double grid_resolution_meters) 
+std::vector<A_Star_Path_> AStarPlanningNode::AStarSearch(
+    DenseGridMap& grid_map, 
+    const std::pair<int, int>& start, 
+    const std::pair<int, int>& goal, 
+    double grid_resolution_meters) 
 {
     std::priority_queue<AStarNode, std::vector<AStarNode>, std::greater<AStarNode>> open_list;
-    std::vector<std::vector<bool>> closed_list(grid_map.size(), std::vector<bool>(grid_map[0].size(), false));
+    std::map<std::pair<int, int>, bool> closed_list;
     std::vector<A_Star_Path_> a_star_path;
 
     // === 从配置读取参数 ===
-    bool enable_penalty = false;
-    double penalty_weight = 0.2;
-    int penalty_radius = 2;
-    bool enable_debug = false;
-
-    enable_penalty = config["Enable_Obstacle_Penalty"].as<bool>();
-    penalty_weight = config["Penalty_Weight"].as<double>();
-    penalty_radius = config["Penalty_Radius"].as<int>();
-
+    bool enable_penalty = config["Enable_Obstacle_Penalty"].as<bool>();
+    double penalty_weight = config["Penalty_Weight"].as<double>();
+    int penalty_radius = config["Penalty_Radius"].as<int>();
     open_list.emplace(start.first, start.second, 0.0f, 
                       std::hypot(goal.first - start.first, goal.second - start.second), -1, -1);
 
-    // std::vector<std::pair<int, int>> directions = {
-    //     {1, 0}, {-1, 0}, {0, 1}, {0, -1},
-    //     {1, 1}, {1, -1}, {-1, 1}, {-1, -1}
-    // };
     std::vector<std::pair<int, int>> directions = {
         {1, 0},   // 向右（东）
         {-1, 0},  // 向左（西）
@@ -250,10 +172,15 @@ std::vector<A_Star_Path_> AStarPlanningNode::AStarSearch(const std::vector<std::
 
     std::map<std::pair<int, int>, std::pair<int, int>> came_from;
 
+    // 获取地图边界
+    int map_min_x, map_min_y, map_max_x, map_max_y;
+    grid_map.getMapBounds(map_min_x, map_min_y, map_max_x, map_max_y);
+
     while (!open_list.empty()) {
         AStarNode current = open_list.top();
         open_list.pop();
 
+        // 目标检查
         if (current.x == goal.first && current.y == goal.second) {
             std::pair<int, int> current_pos = {current.x, current.y};
             std::vector<std::pair<int, int>> path;
@@ -267,30 +194,40 @@ std::vector<A_Star_Path_> AStarPlanningNode::AStarSearch(const std::vector<std::
             for (size_t i = 0; i < path.size(); ++i) {
                 A_Star_Path_ a_star_node;
                 a_star_node.position = Eigen::Vector2d(path[i].first, path[i].second);
-                // a_star_node.yaw = (i == 0) ? vehicle_pose.yaw :
-                //                   atan2(path[i].second - path[i-1].second, path[i].first - path[i-1].first);
                 a_star_path.push_back(a_star_node);
             }
 
             return a_star_path;
         }
 
-        closed_list[current.y][current.x] = true;
+        // 当前节点标记为已访问
+        std::pair<int, int> current_pos = {current.x, current.y};
+        closed_list[current_pos] = true;
 
+        // 探索邻居
         for (const auto& dir : directions) {
             int new_x = current.x + dir.first;
             int new_y = current.y + dir.second;
+            
+            // 确保在地图边界内
+            if (new_x < map_min_x || new_x > map_max_x || new_y < map_min_y || new_y > map_max_y) {
+                continue;
+            }
+            
+            std::pair<int, int> next_pos = {new_x, new_y};
 
-            if (new_x < 0 || new_x >= grid_map[0].size() || 
-                new_y < 0 || new_y >= grid_map.size() ||
-                closed_list[new_y][new_x]) {
+            // 跳过已访问的节点
+            if (closed_list.find(next_pos) != closed_list.end()) {
                 continue;
             }
 
-            if (grid_map[new_y][new_x] != 0) {
+            // 使用世界坐标检查该点是否是障碍物
+            std::pair<double, double> world_coords = grid_map.gridToWorld(new_x, new_y);
+            if (grid_map.getCellValue(world_coords.first, world_coords.second) != 0) {
                 continue;
             }
 
+            // 计算基础代价和障碍物惩罚
             float base_cost = (dir.first == 0 || dir.second == 0) ? 1.0f : 1.414f;
             float obstacle_penalty = 0.0f;
 
@@ -299,10 +236,13 @@ std::vector<A_Star_Path_> AStarPlanningNode::AStarSearch(const std::vector<std::
                     for (int dx = -penalty_radius; dx <= penalty_radius; ++dx) {
                         int cx = new_x + dx;
                         int cy = new_y + dy;
-                        if (cx >= 0 && cx < grid_map[0].size() && 
-                            cy >= 0 && cy < grid_map.size() &&
-                            grid_map[cy][cx] == 1) {
-                            obstacle_penalty += penalty_weight;
+                        
+                        // 确保在地图范围内
+                        if (cx >= map_min_x && cx <= map_max_x && cy >= map_min_y && cy <= map_max_y) {
+                            std::pair<double, double> nearby_world = grid_map.gridToWorld(cx, cy);
+                            if (grid_map.getCellValue(nearby_world.first, nearby_world.second) == 1) {
+                                obstacle_penalty += penalty_weight;
+                            }
                         }
                     }
                 }
@@ -311,9 +251,9 @@ std::vector<A_Star_Path_> AStarPlanningNode::AStarSearch(const std::vector<std::
             float new_g_cost = current.g_cost + base_cost + obstacle_penalty;
             float new_h_cost = std::hypot(goal.first - new_x, goal.second - new_y);
 
-            std::pair<int, int> next_node = {new_x, new_y};
-            if (came_from.find(next_node) == came_from.end()) {
-                came_from[next_node] = {current.x, current.y};
+            // 检查节点是否已经在来源映射中
+            if (came_from.find(next_pos) == came_from.end()) {
+                came_from[next_pos] = current_pos;
                 open_list.emplace(new_x, new_y, new_g_cost, new_h_cost, current.x, current.y);
             }
         }
@@ -323,29 +263,51 @@ std::vector<A_Star_Path_> AStarPlanningNode::AStarSearch(const std::vector<std::
     return a_star_path;
 }
 
+void AStarPlanningNode::publishLastAStarPath(std::vector<A_Star_Path_>& path, bool rush_sign) {
+    if (path.empty()) {
+        ROS_WARN("No path to publish.");
+        return;
+    }
+
+    astar_msgs::AStarPathArray path_array;
+    path_array.header.stamp = ros::Time::now();
+    path_array.header.frame_id = "odom";
+
+    for (const auto& pt : path) {
+        astar_msgs::AStarPath path_msg;
+
+        // 将栅格坐标转换为实际世界坐标
+        std::pair<double, double> world_coords = mapping_node_->origin_map.gridToWorld(pt.position.x(), pt.position.y());
+        path_msg.position.x = world_coords.first;
+        path_msg.position.y = world_coords.second;
+        path_msg.position.z = 0.0;
+        path_array.paths.push_back(path_msg);
+    }
+    
+    path_array.rush_sign = rush_sign;
+    a_star_path_pub_.publish(path_array);
+}
 
 void AStarPlanningNode::publishAStarPathRviz(const std::vector<A_Star_Path_>& path,
-                                             double x_min, double y_min,
-                                             double grid_resolution_meters) {
+                                           double grid_resolution_meters) {
     if (!config["Publish_A_Star_Path"].as<bool>() || path.empty()) return;
 
     nav_msgs::Path path_msg;
-    path_msg.header.stamp = ros::Time::now();;
+    path_msg.header.stamp = ros::Time::now();
     path_msg.header.frame_id = "odom";
 
     for (const auto& node : path) {
         geometry_msgs::PoseStamped pose;
-        pose.header.stamp = ros::Time::now();;
+        pose.header.stamp = ros::Time::now();
         pose.header.frame_id = "odom";
 
-        double real_x = x_min + node.position.x() * grid_resolution_meters;
-        double real_y = y_min + node.position.y() * grid_resolution_meters;
-
-        pose.pose.position.x = real_x;
-        pose.pose.position.y = real_y;
+        // 将栅格坐标转换为实际世界坐标
+        std::pair<double, double> world_coords = mapping_node_->origin_map.gridToWorld(node.position.x(), node.position.y());
+        pose.pose.position.x = world_coords.first;
+        pose.pose.position.y = world_coords.second;
         pose.pose.position.z = 0.0;
 
-        tf::Quaternion q;
+        // 设置方向
         pose.pose.orientation.x = 0;
         pose.pose.orientation.y = 0;
         pose.pose.orientation.z = 0;

@@ -10,8 +10,8 @@ Publish_Map: true
 Enable_Obstacle_Penalty: true
 Penalty_Weight: 0.5
 Penalty_Radius: 2
-
 Safety_Hor: 0.35                      #距离障碍物安全距离
+Reuse_Path_Distance: 0.2
 Publish_A_Star_Map: true
 Publish_A_Star_Path: true
 

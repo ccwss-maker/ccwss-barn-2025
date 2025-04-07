@@ -49,7 +49,7 @@ add_executable(trajectory_tracking_node
   ../navigation/src/TFSubscriberNode.cpp
   ../navigation/src/Matrix.cpp
   src/MSG_Process.cpp
-  src/MPC.cpp
+  src/Pure_Pursuit.cpp
 )
 
 # 链接所有需要的库

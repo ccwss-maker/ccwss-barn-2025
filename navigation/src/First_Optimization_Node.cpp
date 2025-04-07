@@ -100,7 +100,6 @@ void FirstOptimizationNode::TimerCallback(const ros::TimerEvent& event)
         last_cost_Yaw = std::numeric_limits<double>::max();  // 重置上次代价
         sloved = false;
         std::cout << "Path changed, re-optimizing..." << std::endl;
-        Emergency_Brake_Publish();
     }
     A_Star_Path_Last = A_Star_Path;
 
@@ -231,7 +230,6 @@ void FirstOptimizationNode::TimerCallback(const ros::TimerEvent& event)
         msg.position = InitialOptimizedTrajectory_pub.position;
         msg.times = InitialOptimizedTrajectory_pub.times;
         msg.rush_sign = astar_path.rush_sign;
-        msg.emergency_braking_sign = false;
         First_Optimized_Trajectory_Publisher_.publish(msg);
         if (config["Publish_First_Optimum_Marker"].as<bool>(true)) {
             visualizeTrajectory(msg);
@@ -519,13 +517,4 @@ void FirstOptimizationNode::visualizeTrajectory(initial_optimized_msgs::InitialO
 
     // 发布新的轨迹标记
     First_Opimization_Marker_Publisher_.publish(marker_array);
-}
-
-void FirstOptimizationNode::Emergency_Brake_Publish()
-{
-    initial_optimized_msgs::InitialOptimizedTrajectory msg;
-    msg.header.frame_id = "odom";
-    msg.header.stamp = ros::Time::now();
-    msg.emergency_braking_sign = true;
-    First_Optimized_Trajectory_Publisher_.publish(msg);
 }
